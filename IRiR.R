@@ -5,25 +5,28 @@
   start.time =  Sys.time()
   options(scipen = 2000) # Avoid showing large numbers in scientific mode
 
+# Set CRAN mirror
+  options(repos = c(CRAN = "https://cran.rstudio.com/"))
+
 # Install/load packages
   if (!"Benchmarking" %in% installed.packages()) install.packages("Benchmarking")
   if (!"plyr" %in% installed.packages()) install.packages("plyr")
   if (!"dplyr" %in% installed.packages()) install.packages("dplyr")
   if (!"openxlsx" %in% installed.packages()) install.packages("openxlsx")
-  if (!"rstudioapi" %in% installed.packages()) install.packages("rstudioapi")
-  if (!"tidyverse" %in% installed.packages()) install.packages("tidyverse")
+  if ("!tidyverse" %in% installed.packages()) install.packages("tidyverse")
   if (!"writexl" %in% installed.packages()) install.packages("writexl")
   if (!"readxl" %in% installed.packages()) install.packages("readxl")
   library(tidyverse)
   library(Benchmarking)
   library(dplyr)
   library(openxlsx)
-  library(rstudioapi)
   library(writexl)
   library(readxl)
   
   # Automatically setting working directory to where the data file is located. 
-  setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+  # setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # RStudio only
+  # For command line execution, use current working directory
+  setwd(getwd())
   getwd() # Get current working directory
   results_dir = file.path(getwd(), "Results") # Define directory where results are written
   timestamp = format(start.time, "%Y-%m-%d_%H-%M-%S") 
