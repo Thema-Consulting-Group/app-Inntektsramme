@@ -1,3 +1,33 @@
 # Input parameters 
 irir_results_path: "Results/Run_2026-01-27_09-44-25/Til inntektsrammeark.xlsx"
 
+
+#forutsetningeri
+forutsetninger:
+  rho: 0.70 # vektlegging av normkostand
+
+  finanskostnader:
+    gjeldsandel: 0.60
+    noytral_rente: 1.50
+    ek-beta: 0.88
+    markedspremie: 5.00
+    skatt: 0.22
+    inflasjon: 2.55
+    swap: 3.98
+    kredittpremie: 0.84
+
+  #Områdepriser
+  omradepriser:
+    NO1: 624.30
+    NO2: 670.70
+    NO3: 381.10
+    NO4: 226.10
+    NO5: 557.70
+
+  kpi_justering: 
+    2024: 133.6
+    2026: 140.6
+
+  aarslonn: 
+    2024: 129.9 # 2015 = 100
+    2026: 141.7 # 2015 = 100
