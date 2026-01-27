@@ -5,10 +5,10 @@ irir_results_path: "Results/Run_2026-01-27_09-44-25/Til inntektsrammeark.xlsx"
 #forutsetningeri
 forutsetninger:
   rho: 0.70 # vektlegging av normkostand
-
-  finanskostnader:
+  referanserente: 
+  finansparametere:
     gjeldsandel: 0.60
-    noytral_rente: 1.50
+    noytral_realrente: 1.50
     ek-beta: 0.88
     markedspremie: 5.00
     skatt: 0.22
