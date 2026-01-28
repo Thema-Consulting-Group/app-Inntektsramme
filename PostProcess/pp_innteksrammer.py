@@ -4,7 +4,7 @@ import pandas as pd #type: ignore
 from utils import Util
 pd.set_option('display.float_format', '{:.2f}'.format)
 
-class PostProcess:
+class IRData_postprocess:
     def __init__(self, config_path='config.yaml'):
         base_dir: str = os.path.dirname(os.path.dirname(__file__))
 
@@ -66,8 +66,6 @@ class PostProcess:
         aarslonn_2026: float = self.config['forutsetninger']['aarslonn'][2026]
         self.t_over_t_2_aarslonn: float = aarslonn_2026 / aarslonn_2024
         
-        print(self.fp_ld_OPEX)
-
     def calc_referanserente(self):
         # r = (1 - G) x (Rf + Infl + βe x MP)/(1 - s) + G x (Swap + KP)
         finance_param = self.config['forutsetninger']['finansparametere']
@@ -203,12 +201,57 @@ class PostProcess:
         df = pd.DataFrame(data)
         return df
 
-if __name__ == "__main__":
-    post = PostProcess()
-    total_dv, total_dv_incl_vk = post.calc_total_drift_og_vedlikholdskostnader()
-    # Print DataFrame with id and calc_ld_sum_kostnader
+class ETL(IRData_postprocess):
+    def __init__(self):
+        super().__init__()
+        self.ir_df = IRData_postprocess().create_IR_DataFrame()
+        self.d_v_kostnader_eks_utredningskostnad = self.ir_df[ 'DV uten kostnader knyttet til utrednings-ansvar']
+        self.avskrivninger = self.ir_df['Avskrivninger']
+        self.bokforte_verdier = self.ir_df['Bokførte verdier']
+        self.avkasntningsgrunnlag = self.ir_df['Avkastningsgrunnlag']
+        self.nettap_mwh_ld = self.ir_df['Krafttap MWh i Dnett']
+        self.nettap_mwh_rd = self.ir_df['Krafttap MWh i Rnett']
+        self.nettapskostnad_ld = self.ir_df['Lokalt Nettapskostnad']
+        self.nettapskostnad_rd = self.ir_df['Regionalt Nettapskostnad']
+        self.kile = self.ir_df['Kile']
 
+    def calc_aarslonnjusterte_d_v_kostnader(self):
+        return self.d_v_kostnader_eks_utredningskostnad * self.t_over_t_2_aarslonn
+
+    def calc_kpi_justert_kile(self):
+        return self.kile * self.t_over_t_2_kpi
+
+    def create_ETL_DataFrame(self):
+        data: pd.DataFrame = {
+            'Org.nr': self.orgn,
+            'ID': self.id,
+            'Selskap': self.comp,
+            'inntektsramme 2026': None,
+            'D&V-kostnader eks utredningskostnader': self.d_v_kostnader_eks_utredningskostnad,
+            'Årslønn-justerte D&V-kostnader eks utredningskostnader': self.calc_aarslonnjusterte_d_v_kostnader(),
+            'AVS': self.avskrivninger,
+            'BFV': self.bokforte_verdier,
+            'AKG (inkl 1 % arbeids-kapital)': self.avkasntningsgrunnlag,
+            'Nettap MWh i LD': self.nettap_mwh_ld,
+            'Nettap MWh i RD': self.nettap_mwh_rd,
+            'Nettaps- kostnad i LD': self.nettapskostnad_ld,
+            'Nettaps- kostnad i RD': self.nettapskostnad_rd,
+            'KILE': self.kile,
+            'KPI-justert KILE': self.calc_kpi_justert_kile(),
+            'Årslønn-justerte kostnader knyttet til utred.ansvar og KDS': self.rd_cga,
+            'Sum kostnader': self.calc_aarslonnjusterte_d_v_kostnader() + self.avskrivninger + self.nettapskostnad_ld + self.nettapskostnad_rd + self.calc_kpi_justert_kile()  + self.rd_cga, 
+            'Kostnadsgrunnlag': self.calc_aarslonnjusterte_d_v_kostnader() + self.avskrivninger + self.nettapskostnad_ld + self.nettapskostnad_rd + self.calc_kpi_justert_kile()  + self.rd_cga + self.avkasntningsgrunnlag * self.calc_referanserente()  
+            }
+
+        df: pd.DataFrame = pd.DataFrame(data)
+        print(df)
+        return df
+
+if __name__ == "__main__":
+    post = IRData_postprocess()
     ir_df = post.create_IR_DataFrame()
-    print(ir_df.head())
     ir_df.to_csv('PostProcessed_Inntektsrammer.csv', sep = ';', index=False)
+
+    data = ETL()
+    data.create_ETL_DataFrame()
 
