@@ -2,6 +2,7 @@
 import os
 import pandas as pd #type: ignore
 from utils import Util
+import numpy as np
 pd.set_option('display.float_format', '{:.2f}'.format)
 
 class IRData_postprocess:
@@ -21,12 +22,18 @@ class IRData_postprocess:
                 raise FileNotFoundError('No run directories found in Results.')
             latest_run: str = sorted(run_dirs)[-1]
             results_path: str = os.path.join(results_dir, latest_run, 'Til inntektsrammeark.xlsx')
+            data_resultater_ld_path: str = os.path.join(results_dir, latest_run, 'Data_resultater_ld.xlsx')
+            data_resultater_rd_path: str = os.path.join(results_dir, latest_run, 'Data_resultater_rd.xlsx')
         
         #If it is defined in config, use that path
         else:
             results_path: str = os.path.join(base_dir, self.config['irir_results_path'])
+            data_resultater_ld_path: str = os.path.join(base_dir, self.config['data_resultater_ld_path'])
+            data_resultater_rd_path: str = os.path.join(base_dir, self.config['data_resultater_rd_path'])
         results_path = os.path.abspath(results_path)
         self.irir_results: pd.DataFrame = pd.read_excel(results_path)
+        self.data_resultater_ld: pd.DataFrame = pd.read_excel(data_resultater_ld_path, sheet_name = 'Resultater_LD')
+        self.data_resultater_rd: pd.DataFrame = pd.read_excel(data_resultater_rd_path, sheet_name = 'Resultater_RD')
 
         # Assign each column to a self.<column_name> attribute
         self.id_y: pd.Series = self.irir_results['id.y']
@@ -247,11 +254,157 @@ class ETL(IRData_postprocess):
         print(df)
         return df
 
+class DEAnormRnett(ETL):
+    def __init__(self):
+        super().__init__()
+        self.resultat = self.data_resultater_rd[['id', 'rd_eff.s2.cb']].copy()
+        # Manually add all green and red values from the provided list
+        manual_resultat = {
+            32: 0.82,
+            43: 0.74,
+            63: 0.98,
+            88: 0.94,
+            91: 0.96,
+            98: 1.20,
+            157: 2.23,
+            161: 1.17,
+            162: 0.95,
+            213: 1.04,
+            222: 1.14,
+            267: 1.03,
+            274: 0.85,
+            349: 0.95,
+            447: 0.75,
+            542: 1.98,
+            599: 1.17,
+            685: 1.00,
+            35: None,
+            42: None,
+            116: None,
+            135: None,
+            223: None
+        }
+        for id_val, res_val in manual_resultat.items():
+            if id_val in self.resultat['id'].values:
+                self.resultat.loc[self.resultat['id'] == id_val, 'rd_eff.s2.cb'] = res_val
+            else:
+                self.resultat = pd.concat([
+                    self.resultat,
+                    pd.DataFrame({'id': [id_val], 'rd_eff.s2.cb': [res_val]})
+                ], ignore_index=True)
+
+        self.kostnadsgrunnlag_rd = self.calc_rd_kostnadsgrunnlag()
+        self.dea_norm = self.kostnadsgrunnlag_rd * self.resultat
+        self.tillegg_i_norm = (self.rd_RAB / self.rd_RAB.sum()) * (self.kostnadsgrunnlag_rd.sum() - (self.kostnadsgrunnlag_rd*self.resultat).sum())
+
+    def create_DEAnormRnett_DataFrame(self):
+        resultat_Series = self.resultat.set_index('id')['rd_eff.s2.cb']
+        mapped_resultat = self.id.map(resultat_Series)
+        dea_norm = self.kostnadsgrunnlag_rd * mapped_resultat
+        tillegg_i_norm = (self.rd_RAB / self.rd_RAB.sum()) * (self.kostnadsgrunnlag_rd.sum() - dea_norm.sum())
+        kalibrert_dea_norm = dea_norm + tillegg_i_norm
+        kalibrert_dea_resultat = kalibrert_dea_norm / self.kostnadsgrunnlag_rd
+        data = pd.DataFrame({
+            'id': self.id,
+            'Selskap': self.comp,
+            'AKG inkl 17b': self.rd_RAB,
+            'Kostnadsgrunnlag': self.kostnadsgrunnlag_rd,
+            'Resultat': mapped_resultat,
+            'DEAnorm (DEA-resultat*K)': dea_norm,
+            'Tillegg i norm': tillegg_i_norm,
+            'Kalibrert DEAnorm': kalibrert_dea_norm,
+            'kalibrert DEA-resultat': kalibrert_dea_resultat
+        })
+        return data
+
+
+class DEAnormDnett(ETL):
+    def __init__(self):
+        super().__init__()
+        self.resultat = self.data_resultater_ld[['id', 'ld_eff.s2.cb']].copy()
+        manual_resultat = {
+            753: np.nan,  # No value for red
+            121: 0.81,
+            167: 0.52,
+            222: 1.07,
+            294: 0.74,
+            743: 0.87,
+            852: 0.91,
+            873: 0.85
+        }
+        for id_val, res_val in manual_resultat.items():
+            if id_val in self.resultat['id'].values:
+                self.resultat.loc[self.resultat['id'] == id_val, 'ld_eff.s2.cb'] = res_val
+            else:
+                # Add new row if id not present
+                self.resultat = pd.concat([
+                    self.resultat,
+                    pd.DataFrame({'id': [id_val], 'ld_eff.s2.cb': [res_val]})
+                ], ignore_index=True)
+        #self.kostnadsgrunnlag = self.calc_aarslonnjusterte_d_v_kostnader() + self.avskrivninger + self.nettapskostnad_ld + self.nettapskostnad_rd + self.calc_kpi_justert_kile()  + self.rd_cga + self.avkasntningsgrunnlag * self.calc_referanserente()
+        self.kostnadsgrunnlag_ld = self.calc_ld_kostnadsgrunnlag()
+        self.dea_norm = self.kostnadsgrunnlag_ld * self.resultat
+        self.tillegg_i_norm = (self.ld_RAB / self.ld_RAB.sum()) * (self.kostnadsgrunnlag_ld.sum() - (self.kostnadsgrunnlag_ld*self.resultat).sum())
+
+    def create_DEAnormDnett_DataFrame(self):
+            # Build initial DataFrame
+            # Get 'Resultat' as a Series indexed by id
+            resultat_series = self.resultat.set_index('id')['ld_eff.s2.cb']
+            mapped_resultat = self.id.map(resultat_series)
+
+            dea_norm = self.kostnadsgrunnlag_ld * mapped_resultat
+            tillegg_i_norm = (self.ld_RAB / self.ld_RAB.sum()) * (self.kostnadsgrunnlag_ld.sum() - dea_norm.sum())
+            kalibrert_dea_norm = dea_norm + tillegg_i_norm
+            kalibrert_dea_resultat = kalibrert_dea_norm / self.kostnadsgrunnlag_ld
+
+            data = pd.DataFrame({
+                'id': self.id,
+                'Selskap': self.comp,
+                'AKG inkl 17b': self.ld_RAB,
+                'Kostnadsgrunnlag': self.kostnadsgrunnlag_ld,
+                'Resultat': mapped_resultat,
+                'DEAnorm (DEA-resultat*K)': dea_norm,
+                'Tillegg i norm': tillegg_i_norm,
+                'Kalibrert DEAnorm': kalibrert_dea_norm,
+                'kalibrert DEA-resultat': kalibrert_dea_resultat
+            })
+            # Manually set Resultat for specific ids
+            manual_resultat = {
+                753: np.nan,  # No value for red
+                121: 0.81,
+                167: 0.52,
+                222: 1.07,
+                294: 0.74,
+                743: 0.87,
+                852: 0.91,
+                873: 0.85
+            }
+            for id_val, res_val in manual_resultat.items():
+                data.loc[data['id'] == id_val, 'Resultat'] = res_val
+            return data
+
 if __name__ == "__main__":
-    post = IRData_postprocess()
-    ir_df = post.create_IR_DataFrame()
-    ir_df.to_csv('PostProcessed_Inntektsrammer.csv', sep = ';', index=False)
+    #post = IRData_postprocess()
+    #ir_df = post.create_IR_DataFrame()
+    #ir_df.to_csv('PostProcessed_Inntektsrammer.csv', sep = ';', index=False)
+    #print(ir_df)
+    #print(ir_df.columns.tolist())
+    #print(ir_df['Lokalt Kostnadsgrunnlag']) 
+    ##data = ETL()
+    ##data.create_ETL_DataFrame()
+    
+    #data = DEAnormDnett()
+    #print(data.resultat)
+    #a = data.create_DEAnormDnett_DataFrame()
+    #print(a)
+    deanorm_rnett_object: DEAnormRnett() = DEAnormRnett()
+    deanorm_rnett: pd.DataFrame = deanorm_rnett_object.create_DEAnormRnett_DataFrame()
+    print(deanorm_rnett)
 
-    data = ETL()
-    data.create_ETL_DataFrame()
+    deanorm_dnett_object: DEAnormDnett = DEAnormDnett()
+    deanorm_dnett: pd.DataFrame = deanorm_dnett_object.create_DEAnormDnett_DataFrame()
+    print(deanorm_dnett)
 
+    etl_object: ETL = ETL()
+    etl_df: pd.DataFrame = etl_object.create_ETL_DataFrame()
+    print(etl_df)

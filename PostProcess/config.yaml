@@ -1,6 +1,11 @@
 # Input parameters 
+# Input paths
 irir_results_path: "Results/Run_2026-01-27_09-44-25/Til inntektsrammeark.xlsx"
+LD_results_path: "Results/Run_2026-01-27_09-44-24/Data_Resultater_LD.xlsx"
+RD_results_path: "Results/Run_2026-01-27_09-44-24/Data_Resultater_RD.xlsx"
 
+data_resultater_ld_path: "Results/Run_2026-01-27_09-44-25/Data_Resultater_LD.xlsx"
+data_resultater_rd_path: "Results/Run_2026-01-27_09-44-25/Data_Resultater_RD.xlsx"
 
 #forutsetningeri
 forutsetninger:
