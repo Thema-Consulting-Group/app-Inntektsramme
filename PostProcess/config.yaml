@@ -36,3 +36,51 @@ forutsetninger:
   aarslonn: 
     2024: 129.9 # 2015 = 100
     2026: 141.7 # 2015 = 100
+
+# Kalibreringskonstanter (midlertidige hack-verdier inntil beregning er på plass)
+kalibrering:
+  # Sum (IR - K) / sum AKG — i prosent (deles på 100 i koden)
+  sum_ir_k_per_sum_akg_pct: -0.023
+  # Sum renter-avvik / sum AKG — i prosent (deles på 100 i koden)
+  sum_renter_avvik_per_sum_akg_pct: -0.098
+
+# Manuelle DEA-resultater (overstyrer bootstrap-resultater)
+dea_overrides:
+  # Lokalt distribusjonsnett — null betyr NaN (ekskludert)
+  ld:
+    753: null
+    121: 0.81
+    167: 0.52
+    222: 1.07
+    294: 0.74
+    743: 0.87
+    852: 0.91
+    873: 0.85
+  # Regionalt distribusjonsnett — null betyr NaN (ekskludert)
+  rd:
+    32: 0.82
+    43: 0.74
+    63: 0.98
+    88: 0.94
+    91: 0.96
+    98: 1.20
+    157: 2.23
+    161: 1.17
+    162: 0.95
+    213: 1.04
+    222: 1.14
+    267: 1.03
+    274: 0.85
+    349: 0.95
+    447: 0.75
+    542: 1.98
+    599: 1.17
+    685: 1.00
+    35: null
+    42: null
+    116: null
+    135: null
+    223: null
+
+# Sti til kundetillegg-fil
+kundetillegg_path: "kundetillegg.csv"
