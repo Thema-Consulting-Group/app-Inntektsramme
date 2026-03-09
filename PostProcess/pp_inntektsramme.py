@@ -6,9 +6,12 @@ config-driven overrides.
 """
 
 import os
+import logging
 import numpy as np
 import pandas as pd
 from utils import Util
+
+logger = logging.getLogger(__name__)
 
 pd.set_option("display.float_format", "{:.2f}".format)
 
@@ -43,6 +46,9 @@ class Config:
         dea = self._raw["dea_overrides"]
         self.dea_ld_overrides: dict = dea["ld"]
         self.dea_rd_overrides: dict = dea["rd"]
+
+        # Working capital adjustment factor for BFV
+        self.arbeidskapital_faktor: float = 1.01
 
         # Paths
         self.kundetillegg_path: str = self._raw.get("kundetillegg_path", "kundetillegg.csv")
@@ -130,6 +136,16 @@ class DataLoader:
         # Other
         self.kraftpris: pd.Series = irir["pnl.rc"]
 
+        # Kundetillegg
+        kt_df = pd.read_csv(
+            cfg.kundetillegg_path,
+            sep=";",
+            encoding="utf-8-sig",
+            dtype={"id": int},
+        )
+        kt_map = kt_df.set_index("id")["Tillegg i K*"]
+        self.kundetillegg: pd.Series = self.id.map(kt_map).fillna(0).astype(int)
+
 
 # ---------------------------------------------------------------------------
 # 3. CostCalculator — all intermediate cost Series
@@ -161,7 +177,7 @@ class CostCalculator:
 
     @property
     def bfv(self) -> pd.Series:
-        return (self.akg / 1.01).round(0).astype(int)
+        return (self.akg / self.c.arbeidskapital_faktor).round(0).astype(int)
 
     @property
     def kile(self) -> pd.Series:
@@ -326,17 +342,6 @@ class RevenueCapCalculator:
         )
 
     # ------------------------------------------------------------------
-    def _load_kundetillegg(self) -> pd.Series:
-        df = pd.read_csv(
-            self.cfg.kundetillegg_path,
-            sep=";",
-            encoding="utf-8-sig",
-            dtype={"id": int},
-        )
-        mapping = df.set_index("id")["Tillegg i K*"]
-        return self.data.id.map(mapping).fillna(0).astype(int)
-
-    # ------------------------------------------------------------------
     def calc_ir_foer_kalibrering(self) -> pd.Series:
         rho = self.cfg.rho
         kg = self.costs.kostnadsgrunnlag.fillna(0)
@@ -352,9 +357,18 @@ class RevenueCapCalculator:
         tillegg_kundevekst: pd.Series,
     ) -> pd.Series:
         """
-        =((S+T+U) - AKG*(N100+N93)/rho) + W
+        K* etter kalibrering = (S + T + U) - AKG * (N100 + N93) / rho + W
 
-        where U (transmission norm) = 0 for now.
+        Variable mapping (from the NVE regulatory methodology):
+          S   = k_norm_ld           — kalibrert DEAnorm for lokalt distribusjonsnett
+          T   = k_norm_rd           — kalibrert DEAnorm for regionalt distribusjonsnett
+                                      (inkl. nettapskostnad)
+          U   = k_norm_t = 0        — transmisjonsnorm (ikke implementert ennå)
+          W   = tillegg_kundevekst  — tillegg i kostnadsnorm for kundevekst
+          AKG = avkastningsgrunnlag (sum over alle nettnivåer)
+          N100 = sum_ir_k_per_akg   — kalibreringskonstant: sum(IR−K) / sum(AKG)
+          N93  = sum_renter_avvik_per_akg — kalibreringskonstant: sum(renter-avvik) / sum(AKG)
+          rho = effektivitetsvekt (andel norm vs. kostnadsgrunnlag)
         """
         k_norm_t: float = 0
         akg = self.costs.akg
@@ -435,21 +449,20 @@ class RevenueCapCalculator:
 
         k_norm_ld = self.dea_ld.kalibrert
         k_norm_rd = self.dea_rd.kalibrert + c.rd_nettap
-        tillegg = self._load_kundetillegg()
+        tillegg = d.kundetillegg
         ir_foer = self.calc_ir_foer_kalibrering()
         k_etter = self.calc_k_etter_kalibrering(k_norm_ld, k_norm_rd, tillegg)
         ir_etter = self.calc_ir_etter_kalibrering(c.kostnadsgrunnlag, k_etter)
 
-        # Summary print
-        sum_ir = np.nansum(ir_foer)
-        sum_k = np.nansum(c.kostnadsgrunnlag)
-        sum_akg = np.nansum(c.akg)
-        print(
-            f"Sum IR: {sum_ir:.2f}, Sum K: {sum_k:.2f}, "
-            f"Sum IR-K: {sum_ir - sum_k:.2f}, "
-            f"sum_ir_k/AKG (config): {cfg.sum_ir_k_per_akg}, "
-            f"sum_renter/AKG (config): {cfg.sum_renter_avvik_per_akg}, "
-            f"AKG total: {sum_akg:.2f}"
+        logger.info(
+            "Sum IR: %.2f  Sum K: %.2f  Sum IR-K: %.2f  "
+            "sum_ir_k/AKG (config): %s  sum_renter/AKG (config): %s  AKG total: %.2f",
+            np.nansum(ir_foer),
+            np.nansum(c.kostnadsgrunnlag),
+            np.nansum(ir_foer) - np.nansum(c.kostnadsgrunnlag),
+            cfg.sum_ir_k_per_akg,
+            cfg.sum_renter_avvik_per_akg,
+            np.nansum(c.akg),
         )
 
         df = pd.DataFrame({
