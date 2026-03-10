@@ -64,4 +64,4 @@ dea_overrides:
     116: null
     135: null
     223: null
-kundetillegg_path: kundetillegg.csv
+kundetillegg_path: Data/kundetillegg.csv

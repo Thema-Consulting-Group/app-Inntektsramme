@@ -246,7 +246,8 @@ class ETL(IRData_postprocess):
     
         
     def calc_tillegg_i_kostnadsnorm_for_kundevekst(self):
-        data: pd.DataFrame = pd.read_csv('kundetillegg.csv', sep=';', dtype={'id': int})
+        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data: pd.DataFrame = pd.read_csv(os.path.join(_base, 'Data', 'kundetillegg.csv'), sep=';', dtype={'id': int})
         mapping: pd.Series = data.set_index('id')['Tillegg i K*']
         result: pd.Series = self.id.map(mapping).astype(int).fillna(0)
         return result

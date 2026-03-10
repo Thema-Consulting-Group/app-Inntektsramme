@@ -51,7 +51,9 @@ class Config:
         self.arbeidskapital_faktor: float = 1.01
 
         # Paths
-        self.kundetillegg_path: str = self._raw.get("kundetillegg_path", "kundetillegg.csv")
+        self.kundetillegg_path: str = os.path.join(
+            self.base_dir, self._raw.get("kundetillegg_path", "Data/kundetillegg.csv")
+        )
 
     # --- forutsetninger shorthand ---
     @property

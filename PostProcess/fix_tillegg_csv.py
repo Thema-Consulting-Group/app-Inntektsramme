@@ -1,8 +1,10 @@
+import os
 import pandas as pd
 import re
 
-INPUT_FILE = "kundetillegg_raw.csv"
-OUTPUT_FILE = "kundetillegg.csv"
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INPUT_FILE = os.path.join(_BASE, "Data", "kundetillegg_raw.csv")
+OUTPUT_FILE = os.path.join(_BASE, "Data", "kundetillegg.csv")
 
 def clean_numeric(value):
     """Strip whitespace, remove thousands-separator spaces, and convert '-' to 0."""
