@@ -1,52 +1,36 @@
-# Input parameters 
-# Input paths
-irir_results_path: "Results/Run_2026-01-27_09-44-25/Til inntektsrammeark.xlsx"
-LD_results_path: "Results/Run_2026-01-27_09-44-24/Data_Resultater_LD.xlsx"
-RD_results_path: "Results/Run_2026-01-27_09-44-24/Data_Resultater_RD.xlsx"
-
-data_resultater_ld_path: "Results/Run_2026-01-27_09-44-25/Data_Resultater_LD.xlsx"
-data_resultater_rd_path: "Results/Run_2026-01-27_09-44-25/Data_Resultater_RD.xlsx"
-
-#forutsetningeri
+irir_results_path: Results/Run_2026-03-09_13-15-00/Til inntektsrammeark.xlsx
+LD_results_path: Results/Run_2026-01-27_09-44-24/Data_Resultater_LD.xlsx
+RD_results_path: Results/Run_2026-01-27_09-44-24/Data_Resultater_RD.xlsx
+data_resultater_ld_path: Results/Run_2026-03-09_13-15-00/Data_Resultater_LD.xlsx
+data_resultater_rd_path: Results/Run_2026-03-09_13-15-00/Data_Resultater_RD.xlsx
 forutsetninger:
-  rho: 0.70 # vektlegging av normkostand
-  referanserente: 
+  rho: 0.7
+  referanserente: null
   finansparametere:
-    gjeldsandel: 0.60
-    noytral_realrente: 1.50
-    ek-beta: 0.88
-    markedspremie: 5.00
+    gjeldsandel: 0.6
+    noytral_realrente: 1.5
+    ek-beta: 0.875
+    markedspremie: 5.0
     skatt: 0.22
     inflasjon: 2.55
     swap: 3.98
     kredittpremie: 0.84
-
-  #Områdepriser
   omradepriser:
-    NO1: 624.30
-    NO2: 670.70
-    NO3: 381.10
-    NO4: 226.10
-    NO5: 557.70
-
-  kpi_justering: 
+    NO1: 624.3
+    NO2: 670.7
+    NO3: 381.1
+    NO4: 226.1
+    NO5: 557.7
+  kpi_justering:
     2024: 133.6
     2026: 140.6
-
-  aarslonn: 
-    2024: 129.9 # 2015 = 100
-    2026: 141.7 # 2015 = 100
-
-# Kalibreringskonstanter (midlertidige hack-verdier inntil beregning er på plass)
+  aarslonn:
+    2024: 129.9
+    2026: 141.7
 kalibrering:
-  # Sum (IR - K) / sum AKG — i prosent (deles på 100 i koden)
   sum_ir_k_per_sum_akg_pct: -0.023
-  # Sum renter-avvik / sum AKG — i prosent (deles på 100 i koden)
   sum_renter_avvik_per_sum_akg_pct: -0.098
-
-# Manuelle DEA-resultater (overstyrer bootstrap-resultater)
 dea_overrides:
-  # Lokalt distribusjonsnett — null betyr NaN (ekskludert)
   ld:
     753: null
     121: 0.81
@@ -56,14 +40,13 @@ dea_overrides:
     743: 0.87
     852: 0.91
     873: 0.85
-  # Regionalt distribusjonsnett — null betyr NaN (ekskludert)
   rd:
     32: 0.82
     43: 0.74
     63: 0.98
     88: 0.94
     91: 0.96
-    98: 1.20
+    98: 1.2
     157: 2.23
     161: 1.17
     162: 0.95
@@ -75,12 +58,10 @@ dea_overrides:
     447: 0.75
     542: 1.98
     599: 1.17
-    685: 1.00
+    685: 1.0
     35: null
     42: null
     116: null
     135: null
     223: null
-
-# Sti til kundetillegg-fil
-kundetillegg_path: "kundetillegg.csv"
+kundetillegg_path: kundetillegg.csv

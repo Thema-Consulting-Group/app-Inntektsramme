@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.env
+*.egg-info
+
+# R session artifacts
+.Rhistory
+.RData
+.Rproj.user
+temp_*.R
+temp_*.RData
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Results (large / generated – mount as a volume instead)
+Results/
+
+# Bootstrap data (large – mount as a volume instead)
+Data/Bootstrap/
