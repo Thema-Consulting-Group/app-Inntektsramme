@@ -1,8 +1,8 @@
-irir_results_path: Results/Run_2026-03-09_13-15-00/Til inntektsrammeark.xlsx
+irir_results_path: Results/Run_2026-03-24_16-28-32/Til inntektsrammeark.xlsx
 LD_results_path: Results/Run_2026-01-27_09-44-24/Data_Resultater_LD.xlsx
 RD_results_path: Results/Run_2026-01-27_09-44-24/Data_Resultater_RD.xlsx
-data_resultater_ld_path: Results/Run_2026-03-09_13-15-00/Data_Resultater_LD.xlsx
-data_resultater_rd_path: Results/Run_2026-03-09_13-15-00/Data_Resultater_RD.xlsx
+data_resultater_ld_path: Results/Run_2026-03-24_16-28-32/Data_Resultater_LD.xlsx
+data_resultater_rd_path: Results/Run_2026-03-24_16-28-32/Data_Resultater_RD.xlsx
 forutsetninger:
   rho: 0.7
   referanserente: null
@@ -65,3 +65,63 @@ dea_overrides:
     135: null
     223: null
 kundetillegg_path: Data/kundetillegg.csv
+prognose:
+  selskap_id: 7
+  forutsetninger:
+    referanserente_per_year:
+      2026: 10.5
+      2027: 9.7
+      2028: 10.45
+      2029: 10.05
+      2030: 10.35
+      2031: 10.0
+    kraftpris_per_year:
+      2026: 500.0
+      2027: 490.0
+      2028: 480.0
+      2029: 475.0
+      2030: 470.0
+      2031: 465.0
+    inflasjon_per_year:
+      2026: 2.55
+      2027: 2.5
+      2028: 3.0
+      2029: 3.5
+      2030: 4.0
+      2031: 4.5
+  fusjon:
+    enabled: true
+    fusjonsaar: 2030
+    omstillingskostnad_fast_kkr: 1000.0
+    omstillingskostnad_variabel_pst: 5.0
+  synergi:
+    enabled: true
+    kostnadsreduksjon_pst: 10.5
+    synergistart_aar: 2027
+    full_synergi_aar: 2029
+    synergiperiode_slutt: 2031
+  investeringer:
+    avskrivningssats_pst: 4.0
+    nyinvesteringer_per_year:
+      2026: 0
+      2027: 0
+      2028: 0
+      2029: 0
+      2030: 0
+      2031: 0
+    reinvesteringer_per_year:
+      2026: 0
+      2027: 0
+      2028: 0
+      2029: 0
+      2030: 0
+      2031: 0
+    kundeinvesteringer_per_year:
+      2026: 0
+      2027: 0
+      2028: 0
+      2029: 0
+      2030: 0
+      2031: 0
+  om_justering_pst: 0.0
+  rho: 0.7
