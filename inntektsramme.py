@@ -24,7 +24,7 @@ class Config:
 
     def __init__(self, path: str = "config.yaml"):
         self._raw: dict = Util.load_config(path)
-        self.base_dir: str = os.path.dirname(os.path.dirname(__file__))
+        self.base_dir: str = os.path.dirname(os.path.abspath(__file__))
 
         fp = self.f  # shorthand
         # Pre-compute reference rate once
@@ -495,6 +495,7 @@ class RevenueCapCalculator:
             "Tillegg i kostnadsnorm for kundevekst": tillegg,
             "K* etter kalibrering": k_etter,
             "Inntektsramme etter kalibrering": ir_etter,
+            "Kraftpris kr/MWh": d.kraftpris,
         })
 
         return df

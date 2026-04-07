@@ -62,4 +62,4 @@ ENV STREAMLIT_SERVER_PORT=8501 \
     STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
     STREAMLIT_SERVER_HEADLESS=true
 
-CMD ["streamlit", "run", "PostProcess/app.py"]
+CMD ["streamlit", "run", "app.py"]

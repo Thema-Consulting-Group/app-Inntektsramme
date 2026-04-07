@@ -1,7 +1,7 @@
 """
 Inntektsramme Dashboard – Streamlit app
 Run from the repo root:
-    streamlit run PostProcess/app.py
+    streamlit run app.py
 """
 
 import io
@@ -22,14 +22,12 @@ import yaml as _yaml
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
-THIS_DIR = Path(__file__).resolve().parent          # …/PostProcess
-ROOT_DIR = THIS_DIR.parent                          # …/Inntektsramme
+ROOT_DIR = Path(__file__).resolve().parent          # …/Inntektsramme
 
-for p in [str(THIS_DIR), str(ROOT_DIR)]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-os.chdir(THIS_DIR)
+os.chdir(ROOT_DIR)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -149,7 +147,7 @@ for i, col in enumerate(_nav):
 
 st.divider()
 
-CONFIG_PATH = THIS_DIR / "config.yaml"
+CONFIG_PATH = ROOT_DIR / "config.yaml"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -265,7 +263,7 @@ if active_step == 3:
 
         with st.spinner("Kjører beregninger …"):
             try:
-                from pp_inntektsramme import RevenueCapCalculator  # noqa: PLC0415
+                from inntektsramme import RevenueCapCalculator  # noqa: PLC0415
                 with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
                     calc = RevenueCapCalculator()
                     result_df: pd.DataFrame = calc.build_etl_dataframe()
@@ -322,7 +320,7 @@ if active_step == 3:
 # ═══════════════════════════════════════════════════════════════════════
 # STEG 2 – Konfigurasjon
 # ═══════════════════════════════════════════════════════════════════════
-CONFIG_PATH = THIS_DIR / "config.yaml"
+CONFIG_PATH = ROOT_DIR / "config.yaml"
 
 if active_step == 2:
     cfg_raw: dict = _yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -559,7 +557,7 @@ if active_step == 4:
 
     # ── Load / refresh base data ─────────────────────────────────────
     def _load_base_data():
-        from pp_inntektsramme import RevenueCapCalculator  # noqa: PLC0415
+        from inntektsramme import RevenueCapCalculator  # noqa: PLC0415
         _rc = RevenueCapCalculator()
         st.session_state.prognose_base_df  = _rc.build_etl_dataframe()
         st.session_state.prognose_ref_base = _rc.cfg.referanserente
@@ -821,7 +819,7 @@ if active_step == 4:
         "om_justering_pst": float(_om_adj),
     }
 
-    from pp_prognose import PrognoseCalculator  # noqa: PLC0415
+    from prognose import PrognoseCalculator  # noqa: PLC0415
     _forecast = PrognoseCalculator(_base_row, _params, _ref_base).build_forecast()
 
     _ir_base4 = float(_forecast.loc[_forecast["År"] == 2026, "Inntektsramme (prognose)"].iloc[0])
