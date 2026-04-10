@@ -62,17 +62,44 @@ class Config:
 
     # --- file paths resolved from config ---
     def resolve_paths(self):
-        """Return (irir_path, ld_path, rd_path) as absolute paths."""
+        """Return (irir_path, ld_path, rd_path) as absolute paths.
+
+        Auto-detect: walks Run_* dirs newest-first and picks the latest one
+        that contains all three required Excel files.  This makes the app
+        portable on a fresh clone where older committed runs may be missing
+        some files but newer local runs (not committed) are complete.
+        """
         cfg = self._raw
         if not cfg.get("irir_results_path"):
             results_dir = os.path.join(self.base_dir, "Results")
+            if not os.path.isdir(results_dir):
+                raise FileNotFoundError(
+                    "Results/ directory not found. "
+                    "Run the R pipeline (Step 1) to generate result files."
+                )
             run_dirs = sorted(
                 d for d in os.listdir(results_dir)
                 if d.startswith("Run_") and os.path.isdir(os.path.join(results_dir, d))
             )
             if not run_dirs:
-                raise FileNotFoundError("No run directories found in Results.")
-            latest = run_dirs[-1]
+                raise FileNotFoundError(
+                    "No Run_* directories found in Results/. "
+                    "Run the R pipeline (Step 1) to generate result files."
+                )
+            # Find the newest dir that has all three required files
+            required = ["Til inntektsrammeark.xlsx", "Data_Resultater_LD.xlsx", "Data_Resultater_RD.xlsx"]
+            latest = None
+            for d in reversed(run_dirs):
+                dpath = os.path.join(results_dir, d)
+                if all(os.path.exists(os.path.join(dpath, f)) for f in required):
+                    latest = d
+                    break
+            if latest is None:
+                raise FileNotFoundError(
+                    f"No Run_* directory contains all required files "
+                    f"({', '.join(required)}). "
+                    "Run the R pipeline (Step 1) to generate a complete result set."
+                )
             irir = os.path.join(results_dir, latest, "Til inntektsrammeark.xlsx")
             ld = os.path.join(results_dir, latest, "Data_Resultater_LD.xlsx")
             rd = os.path.join(results_dir, latest, "Data_Resultater_RD.xlsx")
@@ -423,6 +450,7 @@ class RevenueCapCalculator:
             "Lokalt KILE (fq)": d.ld_kile,
             "Regionalt D&V-kostnader uten utredningskostnader": d.rd_opex,
             "Regionalt AVS": d.rd_avs,
+            "Regionalt AKG inkl 1% arbeids-kapital": d.rd_akg,
             "Regionalt AKG inkl 17b": d.rd_rab17b,
             "Regionalt Nettap MWh": d.rd_nl,
             "Regionalt KILE (fq)": d.rd_kile,
@@ -474,7 +502,7 @@ class RevenueCapCalculator:
             "rho": cfg.rho,
             "sum ir k per sum akg": cfg.sum_ir_k_per_akg,
             "sum renter avvik": cfg.sum_renter_avvik_per_akg,
-            "inntektsramme 2026": pd.Series([pd.NA] * len(d.id)),
+            "inntektsramme 2026": ir_etter,
             "D&V-kostnader eks utredningskostnader": c.dv_total,
             "Årslønn-justerte D&V-kostnader eks utredningskostnader": c.dv_wage_adj,
             "AVS": c.avs,
