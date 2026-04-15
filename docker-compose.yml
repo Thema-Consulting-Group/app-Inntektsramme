@@ -1,0 +1,12 @@
+services:
+  app:
+    image: inntektsramme:latest
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # Results and Data are mounted so they persist outside the container.
+      # Users place their data here on the host; the app reads/writes as normal.
+      - ./Results:/app/Results
+      - ./Data:/app/Data
+    restart: unless-stopped

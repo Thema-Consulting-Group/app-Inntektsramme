@@ -12,8 +12,6 @@ import time
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
-import base64
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -32,9 +30,11 @@ os.chdir(ROOT_DIR)
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
+_favicon_path = ROOT_DIR / "figures" / "favicon.ico"
+
 st.set_page_config(
     page_title="Inntektsramme Dashboard",
-    page_icon="⚡",
+    page_icon=str(_favicon_path) if _favicon_path.exists() else None,
     layout="wide",
 )
 
@@ -43,107 +43,66 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 st.html("""
 <style>
-/* ── Typography ─────────────────────────────────────────────────────── */
-h1 { font-size: 1.65rem !important; font-weight: 700 !important; letter-spacing: -0.01em; }
-h2, [data-testid="stHeadingWithActionElements"] h2 { font-size: 1.15rem !important; font-weight: 700 !important; }
-h3 { font-size: 1.0rem !important; font-weight: 600 !important; }
+/* ── Typography ── */
+h1 { font-size: 1.5rem !important; font-weight: 700 !important; letter-spacing: -0.02em; }
+h2, [data-testid="stHeadingWithActionElements"] h2 { font-size: 1.05rem !important; font-weight: 600 !important; }
+h3 { font-size: 0.92rem !important; font-weight: 600 !important; }
 
-/* ── Metric cards ───────────────────────────────────────────────────── */
+/* ── Metric cards ── */
 [data-testid="stMetric"] {
-    background: linear-gradient(135deg, #f0f4fa 0%, #ffffff 100%);
-    border: 1px solid #d4dde8; border-radius: 10px;
-    padding: 14px 18px 12px 18px;
+    border: 1px solid #d1d5db; border-radius: 10px;
+    padding: 14px 18px 12px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
-[data-testid="stMetricLabel"] { font-size: 0.77rem !important; color: #5a6a7e !important; }
-[data-testid="stMetricValue"] { font-size: 1.25rem !important; font-weight: 700 !important; color: #1e3a5f !important; }
+[data-testid="stMetricLabel"] { font-size: 0.7rem !important; text-transform: uppercase; letter-spacing: 0.03em; }
+[data-testid="stMetricValue"] { font-size: 1.15rem !important; font-weight: 700 !important; }
 
-/* ── Data editor / dataframe ────────────────────────────────────────── */
+/* ── Data tables – force light mode inside iframes ── */
 [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
-    border: 1px solid #d4dde8; border-radius: 8px;
+    border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden;
 }
+[data-testid="stDataFrame"] iframe,
+[data-testid="stDataEditor"] iframe { color-scheme: light !important; }
 
-/* ── Buttons ────────────────────────────────────────────────────────── */
-button[kind="primary"] { background-color: #1e3a5f !important; border: none !important; }
-button[kind="primary"]:hover { background-color: #2d5a8e !important; }
+/* ── Buttons ── */
+/* primary colour comes from config.toml primaryColor – only need hover here */
+button[kind="primary"] { border-radius: 6px !important; font-weight: 600 !important; }
+button[kind="secondary"] { border-radius: 6px !important; background: #e8eaef !important; color: #1f2937 !important; border: 1px solid #c9cdd4 !important; }
+button[kind="secondary"]:hover { background: #dcdfe5 !important; }
 
-/* ── Slider year labels ─────────────────────────────────────────────── */
-.slider-year-label { text-align: center; font-size: 0.80rem; font-weight: 700; color: #1e3a5f; margin-bottom: -6px; }
-.slider-value-label { text-align: center; font-size: 0.92rem; font-weight: 600; color: #2d5a8e; margin-top: -8px; }
-
-/* ── Pipeline cards ─────────────────────────────────────────────────── */
-.pl-wrap { display: flex; align-items: center; gap: 0; margin: 0 0 0.2rem 0; width: 100%; }
-.pl-step {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: #1e3a5f; color: #fff; border-radius: 10px;
-    padding: 10px 18px; flex: 1; min-height: 80px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.22); transition: all 0.15s ease;
-}
-.pl-step-active { background: #254e82; box-shadow: 0 3px 14px rgba(46,109,180,0.50); outline: 2.5px solid #5ba3f5; }
-.pl-step .pl-icon { font-size: 1.3rem; margin-bottom: 3px; line-height: 1; }
-.pl-step .pl-num  { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.08em; opacity: 0.70; text-transform: uppercase; }
-.pl-step .pl-lbl  { font-size: 0.90rem; font-weight: 700; }
-.pl-arr { font-size: 1.3rem; color: #1e3a5f; padding: 0 8px; opacity: 0.40; user-select: none; }
-
-/* ── Expanders ──────────────────────────────────────────────────────── */
+/* ── Expanders – background from config secondaryBackgroundColor, add border ── */
 section[data-testid="stExpander"] {
-    border: 1px solid #d4dde8 !important; border-radius: 10px !important;
+    border: 1px solid #d1d5db !important; border-radius: 10px !important;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
 }
+
+/* ── Tabs – active colour from config primaryColor ── */
+button[data-baseweb="tab"] { font-weight: 600 !important; }
+
+/* ── Dividers ── */
+hr { border-color: #d1d5db !important; }
 </style>
 """)
 
 st.title("Inntektsramme")
 
 # ---------------------------------------------------------------------------
-# Pipeline navigation  (session-state driven – no full page reload)
+# Pipeline navigation
 # ---------------------------------------------------------------------------
 if "active_step" not in st.session_state:
     st.session_state.active_step = 1
 active_step = st.session_state.active_step
 
-# ── R logo (base64) ──────────────────────────────────────────────────
-_r_logo_path = ROOT_DIR / "figures" / "r-logo.jpg"
-_logo_img = "⚙️"
-if _r_logo_path.exists():
-    _r_logo_b64 = base64.b64encode(_r_logo_path.read_bytes()).decode()
-    _logo_img = f'<img src="data:image/jpeg;base64,{_r_logo_b64}" style="height:32px;border-radius:4px;">'
-
-
-def _card(step_n: int, icon_html: str, label: str) -> str:
-    cls = "pl-step-active" if active_step == step_n else ""
-    return (
-        f'<div class="pl-step {cls}">'
-        f'  <div class="pl-icon">{icon_html}</div>'
-        f'  <div class="pl-num">Steg {step_n}</div>'
-        f'  <div class="pl-lbl">{label}</div>'
-        f'</div>'
-    )
-
-
-st.html(f"""
-<div class="pl-wrap">
-  {_card(1, _logo_img, "RME Modell & Inntektsramme 2026")}
-  <div class="pl-arr">&#9654;</div>
-  {_card(2, "📈", "Prognosebygger")}
-  <div class="pl-arr">&#9654;</div>
-  {_card(3, "📊", "RME Rapporteringstabell")}
-</div>
-""")
-
-# Compact nav buttons
-_nav = st.columns(3)
-_labels = ["Steg 1 – RME Modell & Inntektsramme 2026", "Steg 2 – Prognosebygger", "Steg 3 – RME Rapporteringstabell"]
-for i, col in enumerate(_nav):
-    step_n = i + 1
-    with col:
+_nav_cols = st.columns(3)
+for _ni, (_nlbl, _ncol) in enumerate(zip(
+    ["1 · RME Modell", "2 · Prognosebygger", "3 · Kostnader"], _nav_cols,
+)):
+    with _ncol:
         if st.button(
-            _labels[i], use_container_width=True, key=f"nav{step_n}",
-            type="primary" if active_step == step_n else "secondary",
+            _nlbl, use_container_width=True, key=f"nav{_ni + 1}",
+            type="primary" if active_step == _ni + 1 else "secondary",
         ):
-            st.session_state.active_step = step_n
+            st.session_state.active_step = _ni + 1
             st.rerun()
-
-st.divider()
 
 CONFIG_PATH = ROOT_DIR / "config.yaml"
 
@@ -178,14 +137,16 @@ if active_step == 1:
     with _b2:
         _ir_loaded = "ir_all_df" in st.session_state
         refresh_ir = st.button(
-            "🔄  Oppdater inntektsramme", key="refresh_ir",
+            "Oppdater inntektsramme", key="refresh_ir",
             disabled=not _ir_loaded,
         )
 
-    log_placeholder = st.empty()
+    _status_container = st.container()
 
     # ── Run full R pipeline ─────────────────────────────────────────
     if run_full:
+        with _status_container:
+            st.info("Starter R-pipeline – dette kan ta flere minutter …")
         log_lines: list[str] = []
         start = time.time()
         irir_script = ROOT_DIR / "IRiR.R"
@@ -216,7 +177,7 @@ if active_step == 1:
                 )
                 for line in proc.stdout:
                     log_lines.append(line.rstrip())
-                    log_placeholder.text("\n".join(log_lines))
+                    _status_container.text("\n".join(log_lines[-20:]))
                 proc.wait()
 
             elapsed = time.time() - start
@@ -225,47 +186,16 @@ if active_step == 1:
                 r_ok = True
                 st.success(f"RME Modell fullført på {elapsed:.1f} sekunder")
 
-                # Auto-update config paths to the new run directory
+                # Show the new run directory and its files
                 run_dirs = sorted(
                     [d for d in (ROOT_DIR / "Results").iterdir() if d.is_dir() and d.name.startswith("Run_")],
                     reverse=True,
                 )
                 if run_dirs:
                     latest = run_dirs[0]
-                    candidates = {
-                        "irir_results_path":       ["Til inntektsrammeark.xlsx"],
-                        "data_resultater_ld_path": ["Data_Resultater_LD.xlsx", "Data_resultater_ld.xlsx"],
-                        "data_resultater_rd_path": ["Data_Resultater_RD.xlsx", "Data_resultater_rd.xlsx"],
-                    }
-                    cfg_update = _yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-                    updated = {}
-                    for cfg_key, filenames in candidates.items():
-                        for fname in filenames:
-                            found = latest / fname
-                            if found.exists():
-                                rel = found.relative_to(ROOT_DIR).as_posix()
-                                cfg_update[cfg_key] = rel
-                                updated[cfg_key] = rel
-                                break
-                    if updated:
-                        CONFIG_PATH.write_text(
-                            _yaml.dump(cfg_update, allow_unicode=True, sort_keys=False, default_flow_style=False),
-                            encoding="utf-8",
-                        )
-                        st.success(
-                            "📁 Filstier oppdatert i config.yaml:\n\n"
-                            + "\n".join(f"- `{k}`: `{v}`" for k, v in updated.items())
-                        )
-                    else:
-                        missing = [f for fnames in candidates.values() for f in fnames]
-                        st.warning(
-                            f"⚠️ Fant ingen kjente resultatfiler i `{latest.name}`. "
-                            f"Forventet: {missing}. Filstier ikke oppdatert."
-                        )
-
                     files = sorted(latest.iterdir())
                     file_lines = ("\n\n" + "\n".join(f"- `{f.name}` ({f.stat().st_size:,} bytes)" for f in files)) if files else ""
-                    st.success(f"📁 Siste resultater lagret i: `{latest}`{file_lines}")
+                    st.success(f"📁 Siste resultater lagret i: `{latest.name}`{file_lines}")
             else:
                 st.error(f"❌ Pipeline feilet (exit code {proc.returncode}) etter {elapsed:.1f} sekunder.")
 
@@ -305,41 +235,32 @@ if active_step == 1:
         if "Inntektsramme etter kalibrering" in _r_df.columns:
             _rc3.metric("Sum IR (etter kalibrering)", f"{_r_df['Inntektsramme etter kalibrering'].sum():,.0f}")
 
-        _s1 = st.text_input("🔍 Filtrer", key="step1_search", placeholder="Søk etter selskap …")
-        _disp1 = _r_df
-        if _s1:
-            _mask1 = _r_df.apply(
-                lambda col: col.astype(str).str.contains(_s1, case=False, na=False)
-            ).any(axis=1)
-            _disp1 = _r_df[_mask1]
-        st.dataframe(_disp1, use_container_width=True, height=480)
-
-        _dl1, _dl2 = st.columns(2)
-        with _dl1:
+        st.dataframe(_r_df, use_container_width=True, height=480)
+        _dl1c, _dl2c, _ = st.columns([1, 1, 5])
+        with _dl1c:
             st.download_button(
-                "⬇  CSV (semikolon)", key="dl_csv1",
+                "CSV", key="dl_csv1",
                 data=_r_df.to_csv(index=False, sep=";").encode("utf-8-sig"),
                 file_name="inntektsrammer_etl.csv", mime="text/csv",
             )
-        with _dl2:
+        with _dl2c:
             _buf1 = io.BytesIO()
             with pd.ExcelWriter(_buf1, engine="openpyxl") as w:
                 _r_df.to_excel(w, index=False, sheet_name="ETL")
                 _r_ir.to_excel(w, index=False, sheet_name="Grunnlagsdata")
             st.download_button(
-                "⬇  Excel", key="dl_xlsx1",
+                "Excel", key="dl_xlsx1",
                 data=_buf1.getvalue(),
                 file_name="inntektsrammer_etl.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
     else:
         st.info(
-            "Klikk **▶ Kjør RME Modell** for å kjøre R-modellen og beregne inntektsrammer for 2026."
+            "Klikk **Kjør RME Modell** for å kjøre R-modellen og beregne inntektsrammer for 2026."
         )
 
-    # ── Konfigurasjon (expander) ─────────────────────────────────────
-    st.divider()
-    with st.expander("⚙️ Konfigurasjon", expanded=False):
+    # ── Konfigurasjon ────────────────────────────────────────────────
+    with st.expander("Konfigurasjon", expanded=False):
         _cfg_raw: dict = _yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
         _foru = _cfg_raw.get("forutsetninger", {})
         _fp   = _foru.get("finansparametere", {})
@@ -419,11 +340,11 @@ if active_step == 1:
             new_ld   = st.text_input("data_resultater_ld_path", value=_cfg_raw.get("data_resultater_ld_path", ""), key="p_ld")
             new_rd   = st.text_input("data_resultater_rd_path", value=_cfg_raw.get("data_resultater_rd_path", ""), key="p_rd")
 
-        cs, cr = st.columns([1, 5])
+        cs, cr, _ = st.columns([1, 1, 5])
         with cs:
-            save = st.button("💾  Lagre konfigurasjon", type="primary", key="cfg_save")
+            save = st.button("Lagre konfigurasjon", type="primary", key="cfg_save")
         with cr:
-            if st.button("↩  Tilbakestill", key="cfg_reset"):
+            if st.button("Tilbakestill", key="cfg_reset"):
                 for key in ("fp_editor", "gen_editor", "ir_k", "renter", "p_irir", "p_ld", "p_rd"):
                     st.session_state.pop(key, None)
                 st.rerun()
@@ -447,7 +368,6 @@ if active_step == 1:
 
         # ── Investeringer per selskap ────────────────────────────────
         _INV_CSV_PATH = ROOT_DIR / "Data" / "investeringer.csv"
-        st.divider()
         st.subheader("Investeringer per selskap (% av BFV)")
 
         def _load_inv_csv() -> pd.DataFrame:
@@ -502,9 +422,9 @@ if active_step == 1:
 
             _ci_save, _ci_reset, _ = st.columns([1, 1, 5])
             with _ci_save:
-                _save_inv_csv = st.button("💾  Lagre investeringer", type="primary", key="save_inv_csv")
+                _save_inv_csv = st.button("Lagre investeringer", type="primary", key="save_inv_csv")
             with _ci_reset:
-                if st.button("↩  Tilbakestill", key="reset_inv_csv"):
+                if st.button("Tilbakestill", key="reset_inv_csv"):
                     st.session_state.pop("inv_csv_dn", None)
                     st.session_state.pop("inv_csv_rn", None)
                     st.rerun()
@@ -632,30 +552,15 @@ if active_step == 2:
         st.session_state.ir_loaded_at = ts
 
     _loaded = "prognose_base_df" in st.session_state
-    _hdr_l, _hdr_r = st.columns([5, 1])
-    with _hdr_l:
-        if _loaded:
-            _ts = st.session_state.get("prognose_loaded_at", "ukjent tid")
-            st.caption(
-                f"Beregningsgrunnlag lastet kl. {_ts}. "
-                "Klikk **Oppdater** hvis du har endret konfigurasjon i Steg 1."
-            )
-        else:
-            st.info(
-                "Beregningsgrunnlaget er ikke lastet ennå. "
-                "Gå til **Steg 1** og kjør RME Modell, eller klikk **Last inn** her."
-            )
-    with _hdr_r:
-        _btn_label = "🔄  Oppdater" if _loaded else "▶  Last inn"
-        if st.button(_btn_label, key="load_prog", type="primary"):
+    if not _loaded:
+        st.info("Beregningsgrunnlaget er ikke lastet. Gå til **Steg 1** eller klikk **Last inn**.")
+        if st.button("Last inn", key="load_prog", type="primary"):
             with st.spinner("Kjører inntektsrammemodellen …"):
                 try:
                     _load_base_data()
                     st.rerun()
                 except Exception as _e:
                     st.error(f"Feil: {_e}")
-
-    if not _loaded:
         st.stop()
 
     _base_df: pd.DataFrame  = st.session_state.prognose_base_df
@@ -670,7 +575,7 @@ if active_step == 2:
     _default_idx = 0
     if _saved_id and _saved_id in _base_df["ID"].tolist():
         _default_idx = _base_df["ID"].tolist().index(_saved_id)
-    _sel_comp = st.selectbox("Velg selskap", _all_comp, index=_default_idx, key="prog_comp")
+    _sel_comp = st.selectbox("Velg selskap", _all_comp, index=_default_idx, key="prog_comp", label_visibility="collapsed")
 
     # Detect company change and clear editor widget states so they
     # pick up fresh defaults for the newly selected company.
@@ -687,25 +592,11 @@ if active_step == 2:
     _base_etl_row: dict = _base_df.loc[_sel_mask].iloc[0].to_dict()
     _base_ir_row: dict  = _ir_df.loc[_ir_df["Selskap"] == _sel_comp].iloc[0].to_dict()
 
-    # ── Base year KPIs ───────────────────────────────────────────────
-    with st.expander("Basisår 2026 – Nøkkeltall", expanded=False):
-        _sk = [
-            "Kostnadsgrunnlag", "Inntektsramme etter kalibrering",
-            "AKG (inkl 1 % arbeids-kapital)", "AVS",
-            "D&V-kostnader eks utredningskostnader", "KPI-justert KILE",
-            "Nettap MWh i LD", "Nettap MWh i RD", "Kraftpris kr/MWh",
-        ]
-        _sc = st.columns(3)
-        for _i, _k in enumerate([k for k in _sk if k in _base_etl_row]):
-            with _sc[_i % 3]:
-                _vv = _base_etl_row[_k]
-                st.metric(_k, f"{_vv:,.0f}" if isinstance(_vv, (int, float)) else str(_vv))
-
     # ==================================================================
     #  TABS
     # ==================================================================
     tab_foru, tab_grunn, tab_res = st.tabs(
-        ["📝 Forutsetninger", "📋 Grunnlagsdata", "📊 Resultater"]
+        ["Forutsetninger", "Grunnlagsdata", "Resultater"]
     )
 
     # Saved prognose sub-keys — only reuse when the saved company matches
@@ -719,6 +610,19 @@ if active_step == 2:
     #  TAB 1 — Forutsetninger
     # ──────────────────────────────────────────────────────────────────
     with tab_foru:
+        # ── Base year KPIs ───────────────────────────────────────────────
+        with st.expander("Basisår 2026 – Nøkkeltall", expanded=False):
+            _sk = [
+                "Kostnadsgrunnlag", "Inntektsramme etter kalibrering",
+                "AKG (inkl 1 % arbeids-kapital)", "AVS",
+                "D&V-kostnader eks utredningskostnader", "KPI-justert KILE",
+                "Nettap MWh i LD", "Nettap MWh i RD", "Kraftpris kr/MWh",
+            ]
+            _sc = st.columns(3)
+            for _i, _k in enumerate([k for k in _sk if k in _base_etl_row]):
+                with _sc[_i % 3]:
+                    _vv = _base_etl_row[_k]
+                    st.metric(_k, f"{_vv:,.0f}" if isinstance(_vv, (int, float)) else str(_vv))
         st.subheader("Forutsetninger")
 
         # Build editable table: rows = parameters, cols = years
@@ -755,8 +659,6 @@ if active_step == 2:
             "kpi": _f_kpi, "kpi_lonn": _f_kpi_lonn,
             "nve_rente": _f_nve, "kraftpris": _f_kraft,
         }
-
-        st.divider()
 
         # ── Investeringer per nettnivå ───────────────────────────────
         st.subheader("Investeringer per nettnivå (% av BFV)")
@@ -806,8 +708,6 @@ if active_step == 2:
             "rnett_pct": {int(r["År"]): float(r["Rnett"]) for _, r in _edited_inv_df.iterrows()},
         }
 
-        st.divider()
-
         # ── D&V vekst ────────────────────────────────────────────────
         st.subheader("Drifts- og vedlikeholdskostnader (vekst %)")
         _dv_data = {"År": _YEARS}
@@ -852,8 +752,6 @@ if active_step == 2:
             "lonn_ekskl_pensjon_pct": {int(r["År"]): float(r["Lønn ekskl. pensjon"]) for _, r in _edited_dv_df.iterrows()},
         }
 
-        st.divider()
-
         # ── Advanced options ─────────────────────────────────────────
         with st.expander("Avanserte innstillinger", expanded=False):
             _ac1, _ac2, _ac3, _ac4 = st.columns(4)
@@ -872,12 +770,11 @@ if active_step == 2:
                     step=0.05, format="%.2f", key="rho4")
 
         # ── Save / Reset ─────────────────────────────────────────────
-        st.divider()
-        _sa, _sb, _ = st.columns([1, 1, 4])
+        _sa, _sb, _ = st.columns([1, 1, 6])
         with _sa:
-            _save4 = st.button("💾  Lagre", type="primary", key="save4")
+            _save4 = st.button("Lagre", type="primary", key="save4")
         with _sb:
-            if st.button("↩  Tilbakestill", key="reset4"):
+            if st.button("Tilbakestill", key="reset4"):
                 for k in ("foru_editor", "inv_editor", "dv_editor",
                            "avs_sats4", "lab_ld", "lab_rd", "rho4"):
                     st.session_state.pop(k, None)
@@ -931,34 +828,33 @@ if active_step == 2:
     #  TAB 2 — Grunnlagsdata
     # ──────────────────────────────────────────────────────────────────
     with tab_grunn:
-        st.subheader("Grunnlagsdata")
-
-        _hdr_left, _hdr_right = st.columns([3, 1])
-        with _hdr_right:
-            _show_hist = st.toggle("Vis historisk data", value=False, key="grunn_hist_toggle")
-
         _grunn = _calc.build_grunnlagsdata()
 
-        # If historical toggle on and grunnlagsdata CSV exists, prepend historical years
+        _gh1, _gh2, _gh3 = st.columns([2.5, 3, 1])
+        with _gh1:
+            _net_filter = st.multiselect(
+                "Nettnivå", ["Distribusjon", "Regional", "Samlet"],
+                default=["Distribusjon", "Regional", "Samlet"], key="grunn_net",
+            )
+        with _gh2:
+            _search_g = st.text_input("Søk", key="grunn_search", placeholder="Filtrer parameter …", label_visibility="collapsed")
+        with _gh3:
+            _show_hist = st.toggle("Historisk", value=False, key="grunn_hist_toggle")
+
         if _show_hist and _grunnlagsdata_csv:
             _grunn = _prepend_historical(_grunn, _grunnlagsdata_csv, _base_etl_row)
 
-        _net_filter = st.multiselect(
-            "Nettnivå", ["Distribusjon", "Regional", "Samlet"],
-            default=["Distribusjon", "Regional", "Samlet"], key="grunn_net",
-        )
         _grunn_disp = _grunn[_grunn["Nettnivå"].isin(_net_filter)] if _net_filter else _grunn
-        _search_g = st.text_input("🔍 Søk", key="grunn_search", placeholder="Filtrer parameter …")
         if _search_g:
             _grunn_disp = _grunn_disp[
                 _grunn_disp["Parameter"].str.contains(_search_g, case=False, na=False)
             ]
         st.dataframe(_grunn_disp, use_container_width=True, hide_index=True, height=480)
 
-        _dl_g1, _dl_g2 = st.columns(2)
+        _dl_g1, _dl_g2, _ = st.columns([1, 1, 5])
         with _dl_g1:
             st.download_button(
-                "⬇  CSV", key="dl_grunn_csv",
+                "CSV", key="dl_grunn_csv",
                 data=_grunn.to_csv(index=False, sep=";").encode("utf-8-sig"),
                 file_name=f"grunnlagsdata_{_sel_comp.replace(' ', '_')}.csv",
                 mime="text/csv",
@@ -968,7 +864,7 @@ if active_step == 2:
             with pd.ExcelWriter(_buf_g, engine="openpyxl") as w:
                 _grunn.to_excel(w, index=False, sheet_name="Grunnlagsdata")
             st.download_button(
-                "⬇  Excel", key="dl_grunn_xlsx",
+                "Excel", key="dl_grunn_xlsx",
                 data=_buf_g.getvalue(),
                 file_name=f"grunnlagsdata_{_sel_comp.replace(' ', '_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1113,10 +1009,10 @@ if active_step == 2:
         with st.expander("Detaljert tabell (alle kolonner)", expanded=False):
             st.dataframe(_forecast, use_container_width=True, hide_index=True)
 
-        _dl1, _dl2 = st.columns(2)
+        _dl1, _dl2, _ = st.columns([1, 1, 5])
         with _dl1:
             st.download_button(
-                "⬇  Prognose CSV", key="dl_prog_csv",
+                "CSV", key="dl_prog_csv",
                 data=_forecast.to_csv(index=False, sep=";").encode("utf-8-sig"),
                 file_name=f"prognose_{_sel_comp.replace(' ', '_')}.csv",
                 mime="text/csv",
@@ -1127,7 +1023,7 @@ if active_step == 2:
                 _forecast.to_excel(w, index=False, sheet_name="Prognose")
                 _calc.build_grunnlagsdata().to_excel(w, index=False, sheet_name="Grunnlagsdata")
             st.download_button(
-                "⬇  Excel (alle ark)", key="dl_prog_xlsx",
+                "Excel", key="dl_prog_xlsx",
                 data=_buf_r.getvalue(),
                 file_name=f"prognose_{_sel_comp.replace(' ', '_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1168,27 +1064,25 @@ if active_step == 3:
 
     _rme_df = _build_rme(_rme_csv_path, str(CONFIG_PATH))
 
-    st.caption(f"Kilde: `{Path(_rme_csv_path).name}` — {len(_rme_df)} rader")
-
     # ── Filters ──────────────────────────────────────────────────────
-    _fc1, _fc2, _fc3 = st.columns(3)
+    _fc1, _fc2, _fc3 = st.columns([2, 2, 2])
     with _fc1:
         _all_companies = sorted(_rme_df["Company"].unique())
         _sel_companies = st.multiselect(
             "Selskap", _all_companies, default=[], key="rme_comp",
-            placeholder="Alle selskaper",
+            placeholder="Alle",
         )
     with _fc2:
         _all_vars = _rme_df["Variable"].unique().tolist()
         _sel_vars = st.multiselect(
             "Variabel", _all_vars, default=[], key="rme_var",
-            placeholder="Alle variabler",
+            placeholder="Alle",
         )
     with _fc3:
         _all_nets = sorted(_rme_df["Nettnivaa"].unique())
         _sel_nets = st.multiselect(
             "Nettnivå", _all_nets, default=[], key="rme_net",
-            placeholder="Alle nettnivåer",
+            placeholder="Alle",
         )
 
     _rme_disp = _rme_df.copy()
@@ -1199,29 +1093,20 @@ if active_step == 3:
     if _sel_nets:
         _rme_disp = _rme_disp[_rme_disp["Nettnivaa"].isin(_sel_nets)]
 
-    _search_rme = st.text_input("🔍 Søk", key="rme_search", placeholder="Filtrer …")
-    if _search_rme:
-        _mask_rme = _rme_disp.apply(
-            lambda col: col.astype(str).str.contains(_search_rme, case=False, na=False)
-        ).any(axis=1)
-        _rme_disp = _rme_disp[_mask_rme]
-
-    # ── Summary metrics ──────────────────────────────────────────────
     _year_cols_rme = sorted([c for c in _rme_disp.columns if isinstance(c, (int, float))])
-    _m1r, _m2r, _m3r = st.columns(3)
-    _m1r.metric("Selskaper", _rme_disp["NVE_ID"].nunique())
-    _m2r.metric("Rader", len(_rme_disp))
-    if _year_cols_rme:
-        _m3r.metric("Periode", f"{int(min(_year_cols_rme))} – {int(max(_year_cols_rme))}")
+    st.caption(
+        f"{_rme_disp['NVE_ID'].nunique()} selskaper · {len(_rme_disp)} rader"
+        + (f" · {int(min(_year_cols_rme))}–{int(max(_year_cols_rme))}" if _year_cols_rme else "")
+    )
 
     # ── Table ────────────────────────────────────────────────────────
     st.dataframe(_rme_disp, use_container_width=True, hide_index=True, height=560)
 
     # ── Downloads ────────────────────────────────────────────────────
-    _dl_r1, _dl_r2 = st.columns(2)
+    _dl_r1, _dl_r2, _ = st.columns([1, 1, 5])
     with _dl_r1:
         st.download_button(
-            "⬇  CSV (semikolon)", key="dl_rme_csv",
+            "CSV", key="dl_rme_csv",
             data=_rme_disp.to_csv(index=False, sep=";").encode("utf-8-sig"),
             file_name="rme_rapporteringstabell.csv",
             mime="text/csv",
@@ -1231,7 +1116,7 @@ if active_step == 3:
         with pd.ExcelWriter(_buf_rme, engine="openpyxl") as w:
             _rme_disp.to_excel(w, index=False, sheet_name="RME Tabell")
         st.download_button(
-            "⬇  Excel", key="dl_rme_xlsx",
+            "Excel", key="dl_rme_xlsx",
             data=_buf_rme.getvalue(),
             file_name="rme_rapporteringstabell.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

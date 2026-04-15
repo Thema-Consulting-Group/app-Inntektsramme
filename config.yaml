@@ -1,8 +1,8 @@
-irir_results_path: Results/Run_2026-04-15_09-14-59/Til inntektsrammeark.xlsx
+irir_results_path: ''
 LD_results_path: ''
 RD_results_path: ''
-data_resultater_ld_path: Results/Run_2026-04-15_09-14-59/Data_Resultater_LD.xlsx
-data_resultater_rd_path: Results/Run_2026-04-15_09-14-59/Data_Resultater_RD.xlsx
+data_resultater_ld_path: ''
+data_resultater_rd_path: ''
 forutsetninger:
   rho: 0.7
   referanserente: null

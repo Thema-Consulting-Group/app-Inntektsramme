@@ -1,0 +1,15 @@
+[theme]
+base = "light"
+
+# ── Palette ──────────────────────────────────────────────────────
+# Primary accent: drives primary buttons, active tabs, toggles, sliders, checkboxes
+primaryColor = "#177200"
+
+# Main app background (behind all content)
+backgroundColor = "#bfbfc2"
+
+# Secondary surfaces: expanders, dataframes/tables, code blocks, sidebar
+secondaryBackgroundColor = "#d1d1d3"
+
+# Base text colour
+textColor = "#111827"
