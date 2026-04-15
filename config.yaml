@@ -1,8 +1,8 @@
-irir_results_path: Results/Run_2026-04-10_15-25-28/Til inntektsrammeark.xlsx
+irir_results_path: Results/Run_2026-04-15_09-14-59/Til inntektsrammeark.xlsx
 LD_results_path: ''
 RD_results_path: ''
-data_resultater_ld_path: Results/Run_2026-04-10_15-25-28/Data_Resultater_LD.xlsx
-data_resultater_rd_path: Results/Run_2026-04-10_15-25-28/Data_Resultater_RD.xlsx
+data_resultater_ld_path: Results/Run_2026-04-15_09-14-59/Data_Resultater_LD.xlsx
+data_resultater_rd_path: Results/Run_2026-04-15_09-14-59/Data_Resultater_RD.xlsx
 forutsetninger:
   rho: 0.7
   referanserente: null
@@ -161,3 +161,336 @@ prognose:
   avs_sats: 4.0
   labor_share_ld: 0.3
   labor_share_rd: 0.3
+fusjoner:
+  7:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  9:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  16:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  22:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  32:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  35:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  37:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  42:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  43:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  55:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  63:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  65:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  71:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  82:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  84:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  86:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  88:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  91:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  93:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  95:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  96:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  98:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  104:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  116:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  121:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  132:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  133:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  135:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  157:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  161:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  162:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  164:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  167:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  168:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  173:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  194:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  197:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  213:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  214:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  215:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  222:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  223:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  227:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  238:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  242:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  248:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  249:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  251:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  257:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  264:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  267:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  269:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  274:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  275:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  287:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  294:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  295:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  306:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  311:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  349:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  354:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  433:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  447:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  464:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  503:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  511:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  542:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  566:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  591:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  599:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  611:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  613:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  624:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  625:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  659:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  675:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  685:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  699:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  743:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  753:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  852:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  873:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  903:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0

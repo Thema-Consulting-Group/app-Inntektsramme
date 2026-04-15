@@ -125,12 +125,14 @@ st.html(f"""
   {_card(1, _logo_img, "RME Modell & Inntektsramme 2026")}
   <div class="pl-arr">&#9654;</div>
   {_card(2, "📈", "Prognosebygger")}
+  <div class="pl-arr">&#9654;</div>
+  {_card(3, "📊", "RME Rapporteringstabell")}
 </div>
 """)
 
 # Compact nav buttons
-_nav = st.columns(2)
-_labels = ["Steg 1 – RME Modell & Inntektsramme 2026", "Steg 2 – Prognosebygger"]
+_nav = st.columns(3)
+_labels = ["Steg 1 – RME Modell & Inntektsramme 2026", "Steg 2 – Prognosebygger", "Steg 3 – RME Rapporteringstabell"]
 for i, col in enumerate(_nav):
     step_n = i + 1
     with col:
@@ -528,6 +530,85 @@ if active_step == 2:
         load_investeringer_for_company,
     )
 
+    def _prepend_historical(grunn_df: pd.DataFrame, csv_path: str, etl_row: dict) -> pd.DataFrame:
+        """Prepend historical year columns from grunnlagsdata.csv to the forecast table."""
+        try:
+            raw = pd.read_csv(csv_path).fillna(0)
+        except Exception:
+            return grunn_df
+
+        orgn = int(etl_row.get("Org.nr", etl_row.get("orgn", 0)))
+        if orgn == 0:
+            return grunn_df
+        comp = raw[raw["orgn"] == orgn]
+        if comp.empty:
+            return grunn_df
+
+        hist_years = sorted(comp["y"].unique())
+        forecast_year_cols = [c for c in grunn_df.columns if isinstance(c, int)]
+        # Only keep historical years not already in the forecast
+        hist_years = [y for y in hist_years if int(y) not in forecast_year_cols]
+        if not hist_years:
+            return grunn_df
+
+        # Mapping from (Parameter, Nettnivå) → how to compute from raw columns
+        # Uses the same raw column names as grunnlagsdata.csv
+        _hist_formula: dict[tuple[str, str], list[tuple[str, int]]] = {
+            ("D&V-kost. ekskl. lønn", "Distribusjon"): [("ld_OPEXxS", +1)],
+            ("Lønnskost. ekskl. pensjon", "Distribusjon"): [("ld_sal", +1)],
+            ("Aktiverte lønnskost.", "Distribusjon"): [("ld_sal.cap", +1)],
+            ("Pensjonskost. periodisert", "Distribusjon"): [("ld_pens", +1)],
+            ("Pensjonkost. ført mot egenkapital: impl", "Distribusjon"): [("ld_impl", +1)],
+            ("Pensjonkost. ført mot egenkapital: estimatavvik", "Distribusjon"): [("ld_pens.eq", +1)],
+            ("Bokførte verdier egenfinansiert", "Distribusjon"): [("ld_bv.sf", +1)],
+            ("Bokførte verdier kundefinansiert", "Distribusjon"): [("ld_bv.gf", +1)],
+            ("Avskrivninger egenfinansiert", "Distribusjon"): [("ld_dep.sf", +1)],
+            ("Avskrivninger kundefinansiert", "Distribusjon"): [("ld_dep.gf", +1)],
+            ("KILE", "Distribusjon"): [("ld_cens", +1)],
+            ("Nettap", "Distribusjon"): [("ld_nl", +1)],
+            ("Høyspentnett", "Distribusjon"): [("ld_hv", +1)],
+            ("Nettstasjoner", "Distribusjon"): [("ld_ss", +1)],
+            ("Nettkunder", "Distribusjon"): [("ld_sub", +1)],
+            ("Andre driftsinntekter", "Distribusjon"): [],
+            ("D&V-kost. ekskl. lønn", "Regional"): [("rd_OPEXxS", +1)],
+            ("Lønnskost. ekskl. pensjon", "Regional"): [("rd_sal", +1)],
+            ("Aktiverte lønnskost.", "Regional"): [("rd_sal.cap", +1)],
+            ("Pensjonskost. periodisert", "Regional"): [("rd_pens", +1)],
+            ("Pensjonkost. ført mot egenkapital: impl", "Regional"): [("rd_impl", +1)],
+            ("Pensjonkost. ført mot egenkapital: estimatavvik", "Regional"): [("rd_pens.eq", +1)],
+            ("Bokførte verdier egenfinansiert", "Regional"): [("rd_bv.sf", +1)],
+            ("Bokførte verdier kundefinansiert", "Regional"): [("rd_bv.gf", +1)],
+            ("Avskrivninger egenfinansiert", "Regional"): [("rd_dep.sf", +1)],
+            ("Avskrivninger kundefinansiert", "Regional"): [("rd_dep.gf", +1)],
+            ("KILE", "Regional"): [("rd_cens", +1)],
+            ("Nettap", "Regional"): [("rd_nl", +1)],
+            ("Utredningskostnader", "Regional"): [("rd_coord", +1)],
+            ("Vekt luftlinjer", "Regional"): [("rd_wv.ol", +1)],
+            ("Vekt jordkabler", "Regional"): [("rd_wv.uc", +1)],
+            ("Vekt sjøkabler", "Regional"): [("rd_wv.sc", +1)],
+            ("Vekt stasjonsvariabel", "Regional"): [("rd_wv.ss", +1)],
+            ("Andre driftsinntekter", "Regional"): [],
+        }
+
+        for idx, row in grunn_df.iterrows():
+            key = (row["Parameter"], row["Nettnivå"])
+            formula = _hist_formula.get(key)
+            if formula is None:
+                continue
+            for yr in hist_years:
+                yr_row = comp[comp["y"] == yr]
+                if yr_row.empty:
+                    continue
+                yr_data = yr_row.iloc[0]
+                val = sum(sign * float(yr_data.get(col, 0) or 0) for col, sign in formula)
+                grunn_df.at[idx, int(yr)] = round(val, 2)
+
+        # Reorder columns: meta + historical years + forecast years
+        meta = [c for c in grunn_df.columns if not isinstance(c, int)]
+        year_cols = sorted([c for c in grunn_df.columns if isinstance(c, int)])
+        grunn_df = grunn_df[meta + year_cols]
+        return grunn_df
+
     _YEARS = FORECAST_YEARS  # 2026–2035
 
     _cfg4_raw: dict = _yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -822,6 +903,15 @@ if active_step == 2:
     # ==================================================================
     #  RUN PROGNOSIS (reactive — runs on every parameter change)
     # ==================================================================
+    # Resolve grunnlagsdata.csv path from the same run directory as irir_results_path
+    _grunnlagsdata_csv = None
+    _irir_path = _cfg4_raw.get("irir_results_path", "")
+    if _irir_path:
+        _run_dir = (ROOT_DIR / _irir_path).parent
+        _csv_candidates = sorted(_run_dir.glob("*grunnlagsdata.csv"), reverse=True)
+        if _csv_candidates:
+            _grunnlagsdata_csv = str(_csv_candidates[0])
+
     _calc = PrognoseCalculator(
         base_ir=_base_ir_row,
         base_etl=_base_etl_row,
@@ -832,6 +922,8 @@ if active_step == 2:
         avs_sats=_avs_sats,
         labor_share_ld=_labor_ld,
         labor_share_rd=_labor_rd,
+        fusjon=_cfg4_raw.get("fusjoner", {}).get(_sel_id4),
+        grunnlagsdata_csv_path=_grunnlagsdata_csv,
     )
     _forecast = _calc.build_forecast()
 
@@ -840,7 +932,17 @@ if active_step == 2:
     # ──────────────────────────────────────────────────────────────────
     with tab_grunn:
         st.subheader("Grunnlagsdata")
+
+        _hdr_left, _hdr_right = st.columns([3, 1])
+        with _hdr_right:
+            _show_hist = st.toggle("Vis historisk data", value=False, key="grunn_hist_toggle")
+
         _grunn = _calc.build_grunnlagsdata()
+
+        # If historical toggle on and grunnlagsdata CSV exists, prepend historical years
+        if _show_hist and _grunnlagsdata_csv:
+            _grunn = _prepend_historical(_grunn, _grunnlagsdata_csv, _base_etl_row)
+
         _net_filter = st.multiselect(
             "Nettnivå", ["Distribusjon", "Regional", "Samlet"],
             default=["Distribusjon", "Regional", "Samlet"], key="grunn_net",
@@ -1030,3 +1132,107 @@ if active_step == 2:
                 file_name=f"prognose_{_sel_comp.replace(' ', '_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEG 3 – RME Rapporteringstabell
+# ═══════════════════════════════════════════════════════════════════════
+if active_step == 3:
+    from rme_table import grunnlagsdata_to_rme, rme_table_with_forecast  # noqa: PLC0415
+
+    _cfg3_raw: dict = _yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+
+    # ── Resolve grunnlagsdata.csv from the configured run directory ───
+    _rme_csv_path: str | None = None
+    _irir3 = _cfg3_raw.get("irir_results_path", "")
+    if _irir3:
+        _run_dir3 = (ROOT_DIR / _irir3).parent
+        _csv3_candidates = sorted(_run_dir3.glob("*grunnlagsdata.csv"), reverse=True)
+        if _csv3_candidates:
+            _rme_csv_path = str(_csv3_candidates[0])
+
+    if not _rme_csv_path:
+        st.warning(
+            "Finner ikke grunnlagsdata.csv.  "
+            "Kjør **Steg 1 – RME Modell** først for å generere resultatfiler."
+        )
+        st.stop()
+
+    # ── Cache the table build (expensive for all companies) ──────────
+    @st.cache_data(show_spinner="Bygger RME-tabell …")
+    def _build_rme(csv_path: str, config_path: str) -> pd.DataFrame:
+        return rme_table_with_forecast(
+            csv_path=csv_path,
+            config_path=config_path,
+        )
+
+    _rme_df = _build_rme(_rme_csv_path, str(CONFIG_PATH))
+
+    st.caption(f"Kilde: `{Path(_rme_csv_path).name}` — {len(_rme_df)} rader")
+
+    # ── Filters ──────────────────────────────────────────────────────
+    _fc1, _fc2, _fc3 = st.columns(3)
+    with _fc1:
+        _all_companies = sorted(_rme_df["Company"].unique())
+        _sel_companies = st.multiselect(
+            "Selskap", _all_companies, default=[], key="rme_comp",
+            placeholder="Alle selskaper",
+        )
+    with _fc2:
+        _all_vars = _rme_df["Variable"].unique().tolist()
+        _sel_vars = st.multiselect(
+            "Variabel", _all_vars, default=[], key="rme_var",
+            placeholder="Alle variabler",
+        )
+    with _fc3:
+        _all_nets = sorted(_rme_df["Nettnivaa"].unique())
+        _sel_nets = st.multiselect(
+            "Nettnivå", _all_nets, default=[], key="rme_net",
+            placeholder="Alle nettnivåer",
+        )
+
+    _rme_disp = _rme_df.copy()
+    if _sel_companies:
+        _rme_disp = _rme_disp[_rme_disp["Company"].isin(_sel_companies)]
+    if _sel_vars:
+        _rme_disp = _rme_disp[_rme_disp["Variable"].isin(_sel_vars)]
+    if _sel_nets:
+        _rme_disp = _rme_disp[_rme_disp["Nettnivaa"].isin(_sel_nets)]
+
+    _search_rme = st.text_input("🔍 Søk", key="rme_search", placeholder="Filtrer …")
+    if _search_rme:
+        _mask_rme = _rme_disp.apply(
+            lambda col: col.astype(str).str.contains(_search_rme, case=False, na=False)
+        ).any(axis=1)
+        _rme_disp = _rme_disp[_mask_rme]
+
+    # ── Summary metrics ──────────────────────────────────────────────
+    _year_cols_rme = sorted([c for c in _rme_disp.columns if isinstance(c, (int, float))])
+    _m1r, _m2r, _m3r = st.columns(3)
+    _m1r.metric("Selskaper", _rme_disp["NVE_ID"].nunique())
+    _m2r.metric("Rader", len(_rme_disp))
+    if _year_cols_rme:
+        _m3r.metric("Periode", f"{int(min(_year_cols_rme))} – {int(max(_year_cols_rme))}")
+
+    # ── Table ────────────────────────────────────────────────────────
+    st.dataframe(_rme_disp, use_container_width=True, hide_index=True, height=560)
+
+    # ── Downloads ────────────────────────────────────────────────────
+    _dl_r1, _dl_r2 = st.columns(2)
+    with _dl_r1:
+        st.download_button(
+            "⬇  CSV (semikolon)", key="dl_rme_csv",
+            data=_rme_disp.to_csv(index=False, sep=";").encode("utf-8-sig"),
+            file_name="rme_rapporteringstabell.csv",
+            mime="text/csv",
+        )
+    with _dl_r2:
+        _buf_rme = io.BytesIO()
+        with pd.ExcelWriter(_buf_rme, engine="openpyxl") as w:
+            _rme_disp.to_excel(w, index=False, sheet_name="RME Tabell")
+        st.download_button(
+            "⬇  Excel", key="dl_rme_xlsx",
+            data=_buf_rme.getvalue(),
+            file_name="rme_rapporteringstabell.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )

@@ -117,12 +117,22 @@ class PrognoseCalculator:
         {dv_ekskl_lonn_pct, lonn_ekskl_pensjon_pct} — year → growth (%).
     rho : float
         Efficiency weight (default 0.7).
+    grunnlagsdata_csv_path : str | None
+        Path to grunnlagsdata.csv from the R pipeline run. When provided,
+        sub-components (pension, salary, capitalised salary, sf/gf BFV split,
+        infrastructure) are loaded and projected in build_grunnlagsdata().
     avs_sats : float
         Depreciation rate (% of BFV, default 4.0).
     labor_share_ld : float
         Labour share of D&V for Distribution (0–1, default 0.30).
     labor_share_rd : float
         Labour share of D&V for Regional (0–1, default 0.30).
+    fusjon : dict | None
+        Merger assumptions: {merge_yr, synergy_pct, one_off}.
+        merge_yr    : int year the merger takes effect, or None.
+        synergy_pct : long-run O&M reduction (%), phased in over 3 years.
+        one_off     : one-off O&M addition (1000 NOK) in merge_yr.
+        Default: no merger (all zeros).
     """
 
     def __init__(
@@ -136,6 +146,8 @@ class PrognoseCalculator:
         avs_sats: float = 4.0,
         labor_share_ld: float = 0.30,
         labor_share_rd: float = 0.30,
+        fusjon: dict | None = None,
+        grunnlagsdata_csv_path: str | None = None,
     ):
         self.f = forutsetninger or DEFAULT_FORUTSETNINGER
         # If no override passed, look up per-company values from investeringer.csv
@@ -150,7 +162,13 @@ class PrognoseCalculator:
         self.labor_ld = labor_share_ld
         self.labor_rd = labor_share_rd
 
+        f = fusjon or {}
+        self.merge_yr: int | None = f.get("merge_yr") or None
+        self.synergy_frac: float = (f.get("synergy_pct") or 0) / 100.0
+        self.one_off: float = float(f.get("one_off") or 0)
+
         self._init_base(base_ir, base_etl)
+        self._init_subcomponents(grunnlagsdata_csv_path, base_etl)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -215,6 +233,136 @@ class PrognoseCalculator:
         self.rd_dv_lab0 = self.rd_dv * self.labor_rd
 
     # ------------------------------------------------------------------
+    # Sub-component extraction from grunnlagsdata.csv
+    # ------------------------------------------------------------------
+
+    def _init_subcomponents(self, csv_path: str | None, etl: dict):
+        """Load granular sub-components from grunnlagsdata.csv (base year).
+
+        Extracts per-company values for the DEA base year (latest year in CSV,
+        typically y.cb = 2024) including:
+          - Pension, salary, capitalised salary (for D&V breakdown)
+          - BFV sf/gf split and depreciation sf/gf
+          - Infrastructure variables (held constant in forecast)
+        """
+        v = self._v
+        self._has_subcomponents = False
+
+        # Defaults: derive from aggregated values
+        self.ld_bfv_sf0 = self.ld_bfv
+        self.ld_bfv_gf0 = 0.0
+        self.rd_bfv_sf0 = self.rd_bfv
+        self.rd_bfv_gf0 = 0.0
+        self.ld_sf_ratio = 1.0
+        self.rd_sf_ratio = 1.0
+
+        # D&V sub-component defaults (pension/salary not split out)
+        self.ld_pens0 = 0.0
+        self.ld_sal0 = 0.0
+        self.ld_sal_cap0 = 0.0
+        self.ld_pens_eq0 = 0.0
+        self.ld_impl0 = 0.0
+        self.rd_pens0 = 0.0
+        self.rd_sal0 = 0.0
+        self.rd_sal_cap0 = 0.0
+        self.rd_pens_eq0 = 0.0
+        self.rd_impl0 = 0.0
+        self.rd_utred0 = 0.0
+
+        # Infrastructure defaults
+        self.ld_hv0 = 0.0
+        self.ld_ss0 = 0.0
+        self.ld_sub0 = 0.0
+        self.rd_wv_ol0 = 0.0
+        self.rd_wv_uc0 = 0.0
+        self.rd_wv_sc0 = 0.0
+        self.rd_wv_ss0 = 0.0
+
+        if csv_path is None or not os.path.exists(csv_path):
+            return
+
+        try:
+            df = pd.read_csv(csv_path).fillna(0)
+        except Exception:
+            return
+
+        # Find company rows using orgn from etl
+        orgn = int(etl.get("Org.nr", etl.get("orgn", 0)))
+        if orgn == 0:
+            return
+
+        comp_df = df[df["orgn"] == orgn]
+        if comp_df.empty:
+            return
+
+        # Use the latest year (DEA base year)
+        base_yr = int(comp_df["y"].max())
+        row = comp_df[comp_df["y"] == base_yr].iloc[0]
+
+        def _g(col: str) -> float:
+            return float(row.get(col, 0) or 0)
+
+        self._has_subcomponents = True
+
+        # BFV sf/gf split
+        self.ld_bfv_sf0 = _g("ld_bv.sf")
+        self.ld_bfv_gf0 = _g("ld_bv.gf")
+        ld_bfv_total = self.ld_bfv_sf0 + self.ld_bfv_gf0
+        self.ld_sf_ratio = self.ld_bfv_sf0 / ld_bfv_total if ld_bfv_total > 0 else 1.0
+
+        self.rd_bfv_sf0 = _g("rd_bv.sf")
+        self.rd_bfv_gf0 = _g("rd_bv.gf")
+        rd_bfv_total = self.rd_bfv_sf0 + self.rd_bfv_gf0
+        self.rd_sf_ratio = self.rd_bfv_sf0 / rd_bfv_total if rd_bfv_total > 0 else 1.0
+
+        # D&V sub-components (nominal, base year)
+        self.ld_pens0 = _g("ld_pens")
+        self.ld_sal0 = _g("ld_sal")
+        self.ld_sal_cap0 = _g("ld_sal.cap")
+        self.ld_pens_eq0 = _g("ld_pens.eq")
+        self.ld_impl0 = _g("ld_impl")
+        self.rd_pens0 = _g("rd_pens")
+        self.rd_sal0 = _g("rd_sal")
+        self.rd_sal_cap0 = _g("rd_sal.cap")
+        self.rd_pens_eq0 = _g("rd_pens.eq")
+        self.rd_impl0 = _g("rd_impl")
+        self.rd_utred0 = _g("rd_coord")
+
+        # Infrastructure (held constant)
+        self.ld_hv0 = _g("ld_hv")
+        self.ld_ss0 = _g("ld_ss")
+        self.ld_sub0 = _g("ld_sub")
+        self.rd_wv_ol0 = _g("rd_wv.ol")
+        self.rd_wv_uc0 = _g("rd_wv.uc")
+        self.rd_wv_sc0 = _g("rd_wv.sc")
+        self.rd_wv_ss0 = _g("rd_wv.ss")
+
+    # ------------------------------------------------------------------
+    # Merger synergy
+    # ------------------------------------------------------------------
+
+    def _synergy_factor(self, year: int) -> float:
+        """Return the fraction of synergy_frac to apply in this year.
+
+        Phase-in schedule (matches the Excel model):
+          merge_yr + 1 → 1/3 of synergy
+          merge_yr + 2 → 1/2 of synergy
+          merge_yr + 3+ → full synergy
+          merge_yr or before → 0
+        """
+        if self.merge_yr is None or self.synergy_frac == 0:
+            return 0.0
+        diff = year - self.merge_yr
+        if diff <= 0:
+            return 0.0
+        elif diff == 1:
+            return self.synergy_frac / 3
+        elif diff == 2:
+            return self.synergy_frac / 2
+        else:
+            return self.synergy_frac
+
+    # ------------------------------------------------------------------
     # Main projection
     # ------------------------------------------------------------------
 
@@ -229,6 +377,19 @@ class PrognoseCalculator:
         rd_bfv = self.rd_bfv
         ld_kile = self.ld_kile
         rd_kile = self.rd_kile
+
+        # Sub-component tracking (grown in parallel with mat/lab)
+        ld_pens = self.ld_pens0
+        ld_sal = self.ld_sal0
+        ld_sal_cap = self.ld_sal_cap0
+        ld_pens_eq = self.ld_pens_eq0
+        ld_impl = self.ld_impl0
+        rd_pens = self.rd_pens0
+        rd_sal = self.rd_sal0
+        rd_sal_cap = self.rd_sal_cap0
+        rd_pens_eq = self.rd_pens_eq0
+        rd_impl = self.rd_impl0
+        rd_utred = self.rd_utred0
 
         kp_base = self._get(self.f["kraftpris"], _BASE_YEAR, self.kraftpris_base)
 
@@ -248,6 +409,19 @@ class PrognoseCalculator:
                 rd_dv_mat *= 1 + dv_gr
                 rd_dv_lab *= 1 + lonn_gr
 
+                # Sub-components: pension/impl grow with dv_gr, salary with lonn_gr
+                ld_pens *= 1 + dv_gr
+                ld_pens_eq *= 1 + dv_gr
+                ld_impl *= 1 + dv_gr
+                ld_sal *= 1 + lonn_gr
+                ld_sal_cap *= 1 + lonn_gr
+                rd_pens *= 1 + dv_gr
+                rd_pens_eq *= 1 + dv_gr
+                rd_impl *= 1 + dv_gr
+                rd_sal *= 1 + lonn_gr
+                rd_sal_cap *= 1 + lonn_gr
+                rd_utred *= 1 + dv_gr
+
                 ld_bfv = ld_bfv * (1 + inv_ld - self.avs_sats_frac)
                 rd_bfv = rd_bfv * (1 + inv_rd - self.avs_sats_frac)
 
@@ -256,10 +430,26 @@ class PrognoseCalculator:
 
             ld_dv_t = ld_dv_mat + ld_dv_lab
             rd_dv_t = rd_dv_mat + rd_dv_lab
+
+            # Merger: synergy reduction + one-off cost in merge_yr
+            syn = self._synergy_factor(year)
+            one_off_t = self.one_off if (self.merge_yr is not None and year == self.merge_yr) else 0.0
+            ld_dv_t = ld_dv_t * (1 - syn) + one_off_t
+            rd_dv_t = rd_dv_t * (1 - syn)
             ld_akg_t = ld_bfv * 1.01
             rd_akg_t = rd_bfv * 1.01
             ld_avs_t = ld_bfv * self.avs_sats_frac
             rd_avs_t = rd_bfv * self.avs_sats_frac
+
+            # BFV sf/gf split (ratio preserved from base year)
+            ld_bfv_sf = ld_bfv * self.ld_sf_ratio
+            ld_bfv_gf = ld_bfv * (1 - self.ld_sf_ratio)
+            rd_bfv_sf = rd_bfv * self.rd_sf_ratio
+            rd_bfv_gf = rd_bfv * (1 - self.rd_sf_ratio)
+            ld_avs_sf = ld_bfv_sf * self.avs_sats_frac
+            ld_avs_gf = ld_bfv_gf * self.avs_sats_frac
+            rd_avs_sf = rd_bfv_sf * self.avs_sats_frac
+            rd_avs_gf = rd_bfv_gf * self.avs_sats_frac
 
             kp_ratio = kraftpris / kp_base if kp_base else 1
             ld_nettap_t = self.ld_nettap * kp_ratio
@@ -291,7 +481,7 @@ class PrognoseCalculator:
             driftsresultat = ir_t - total_kg_t
             rammevilkar_pct = (driftsresultat / total_kg_t * 100) if total_kg_t else 0
 
-            rows.append({
+            row_data = {
                 "År": year,
                 "KPI %": round(self._get(self.f["kpi"], year, 2.0), 2),
                 "KPI lønn %": round(self._get(self.f["kpi_lonn"], year, 2.5), 2),
@@ -324,7 +514,39 @@ class PrognoseCalculator:
                 "Effektivitet Rnett %": round(eff_rd_pct, 2),
                 "Effektivitet vektet %": round(eff_w_pct, 2),
                 "Avkastning NVE %": round(avkastning_pct, 2),
-            })
+                # Sub-components (granular Grunnlagsdata rows)
+                "LD D&V ekskl. lønn": round(ld_dv_mat * (1 - syn)),
+                "LD Lønnskost. ekskl. pensjon": round(ld_sal * (1 - syn)),
+                "LD Aktiverte lønnskost.": round(ld_sal_cap * (1 - syn)),
+                "LD Pensjonskost. periodisert": round(ld_pens * (1 - syn)),
+                "LD Pensjonkost. ført mot egenkapital: impl": round(ld_impl * (1 - syn)),
+                "LD Pensjonkost. ført mot egenkapital: estimatavvik": round(ld_pens_eq * (1 - syn)),
+                "LD Andre driftsinntekter": 0,
+                "LD BFV sf": round(ld_bfv_sf),
+                "LD BFV gf": round(ld_bfv_gf),
+                "LD AVS sf": round(ld_avs_sf, 1),
+                "LD AVS gf": round(ld_avs_gf, 1),
+                "LD Høyspentnett km": round(self.ld_hv0, 2),
+                "LD Nettstasjoner": round(self.ld_ss0, 2),
+                "LD Nettkunder": round(self.ld_sub0),
+                "RD D&V ekskl. lønn": round(rd_dv_mat * (1 - syn)),
+                "RD Lønnskost. ekskl. pensjon": round(rd_sal * (1 - syn)),
+                "RD Aktiverte lønnskost.": round(rd_sal_cap * (1 - syn)),
+                "RD Pensjonskost. periodisert": round(rd_pens * (1 - syn)),
+                "RD Pensjonkost. ført mot egenkapital: impl": round(rd_impl * (1 - syn)),
+                "RD Pensjonkost. ført mot egenkapital: estimatavvik": round(rd_pens_eq * (1 - syn)),
+                "RD Andre driftsinntekter": 0,
+                "RD Utredningskostnader": round(rd_utred * (1 - syn)),
+                "RD BFV sf": round(rd_bfv_sf),
+                "RD BFV gf": round(rd_bfv_gf),
+                "RD AVS sf": round(rd_avs_sf, 1),
+                "RD AVS gf": round(rd_avs_gf, 1),
+                "RD Vekt luftlinjer": round(self.rd_wv_ol0, 1),
+                "RD Vekt jordkabler": round(self.rd_wv_uc0, 2),
+                "RD Vekt sjøkabler": round(self.rd_wv_sc0, 1),
+                "RD Vekt stasjonsvariabel": round(self.rd_wv_ss0, 1),
+            }
+            rows.append(row_data)
 
         return pd.DataFrame(rows)
 
@@ -336,25 +558,45 @@ class PrognoseCalculator:
         fc = self.build_forecast()
         sel = self.selskap
 
+        # Granular mapping matching the existing app's Grunnlagsdata view.
+        # Each tuple: (display_name, forecast_col, nettnivaa, unit)
         mapping = [
-            ("D&V-kostnader",    "LD D&V",              "Distribusjon", "kkr"),
-            ("BFV",              "LD BFV",              "Distribusjon", "kkr"),
-            ("AKG",              "LD AKG",              "Distribusjon", "kkr"),
-            ("KILE",             "LD KILE",             "Distribusjon", "kkr"),
-            ("Avskrivninger",    "LD AVS",              "Distribusjon", "kkr"),
-            ("Nettap",           "LD Nettap MWh",       "Distribusjon", "MWh"),
-            ("Nettapskostnad",   "LD Nettapskostnad",   "Distribusjon", "kkr"),
-            ("Kostnadsgrunnlag", "LD Kostnadsgrunnlag", "Distribusjon", "kkr"),
-            ("Kostnadsnorm",     "LD Kostnadsnorm",     "Distribusjon", "kkr"),
-            ("D&V-kostnader",    "RD D&V",              "Regional",     "kkr"),
-            ("BFV",              "RD BFV",              "Regional",     "kkr"),
-            ("AKG",              "RD AKG",              "Regional",     "kkr"),
-            ("KILE",             "RD KILE",             "Regional",     "kkr"),
-            ("Avskrivninger",    "RD AVS",              "Regional",     "kkr"),
-            ("Nettap",           "RD Nettap MWh",       "Regional",     "MWh"),
-            ("Nettapskostnad",   "RD Nettapskostnad",   "Regional",     "kkr"),
-            ("Kostnadsgrunnlag", "RD Kostnadsgrunnlag", "Regional",     "kkr"),
-            ("Kostnadsnorm",     "RD Kostnadsnorm",     "Regional",     "kkr"),
+            # --- Distribusjon ---
+            ("Andre driftsinntekter",                    "LD Andre driftsinntekter",                    "Distribusjon", "kkr"),
+            ("D&V-kost. ekskl. lønn",                   "LD D&V ekskl. lønn",                         "Distribusjon", "kkr"),
+            ("Bokførte verdier kundefinansiert",         "LD BFV gf",                                  "Distribusjon", "kkr"),
+            ("Bokførte verdier egenfinansiert",          "LD BFV sf",                                  "Distribusjon", "kkr"),
+            ("KILE",                                     "LD KILE",                                    "Distribusjon", "kkr"),
+            ("Avskrivninger kundefinansiert",            "LD AVS gf",                                  "Distribusjon", "kkr"),
+            ("Avskrivninger egenfinansiert",             "LD AVS sf",                                  "Distribusjon", "kkr"),
+            ("Høyspentnett",                             "LD Høyspentnett km",                         "Distribusjon", "km"),
+            ("Pensjonkost. ført mot egenkapital: impl",  "LD Pensjonkost. ført mot egenkapital: impl", "Distribusjon", "kkr"),
+            ("Nettap",                                   "LD Nettap MWh",                              "Distribusjon", "MWh"),
+            ("Pensjonskost. periodisert",                "LD Pensjonskost. periodisert",               "Distribusjon", "kkr"),
+            ("Pensjonkost. ført mot egenkapital: estimatavvik", "LD Pensjonkost. ført mot egenkapital: estimatavvik", "Distribusjon", "kkr"),
+            ("Lønnskost. ekskl. pensjon",                "LD Lønnskost. ekskl. pensjon",               "Distribusjon", "kkr"),
+            ("Aktiverte lønnskost.",                      "LD Aktiverte lønnskost.",                    "Distribusjon", "kkr"),
+            ("Nettstasjoner",                            "LD Nettstasjoner",                           "Distribusjon", "stk"),
+            ("Nettkunder",                               "LD Nettkunder",                              "Distribusjon", "stk"),
+            # --- Regional ---
+            ("Andre driftsinntekter",                    "RD Andre driftsinntekter",                   "Regional",     "kkr"),
+            ("D&V-kost. ekskl. lønn",                   "RD D&V ekskl. lønn",                         "Regional",     "kkr"),
+            ("Bokførte verdier kundefinansiert",         "RD BFV gf",                                  "Regional",     "kkr"),
+            ("Bokførte verdier egenfinansiert",          "RD BFV sf",                                  "Regional",     "kkr"),
+            ("KILE",                                     "RD KILE",                                    "Regional",     "kkr"),
+            ("Utredningskostnader",                      "RD Utredningskostnader",                     "Regional",     "kkr"),
+            ("Avskrivninger kundefinansiert",            "RD AVS gf",                                  "Regional",     "kkr"),
+            ("Avskrivninger egenfinansiert",             "RD AVS sf",                                  "Regional",     "kkr"),
+            ("Pensjonkost. ført mot egenkapital: impl",  "RD Pensjonkost. ført mot egenkapital: impl", "Regional",     "kkr"),
+            ("Nettap",                                   "RD Nettap MWh",                              "Regional",     "MWh"),
+            ("Pensjonskost. periodisert",                "RD Pensjonskost. periodisert",               "Regional",     "kkr"),
+            ("Pensjonkost. ført mot egenkapital: estimatavvik", "RD Pensjonkost. ført mot egenkapital: estimatavvik", "Regional", "kkr"),
+            ("Lønnskost. ekskl. pensjon",                "RD Lønnskost. ekskl. pensjon",               "Regional",     "kkr"),
+            ("Aktiverte lønnskost.",                      "RD Aktiverte lønnskost.",                    "Regional",     "kkr"),
+            ("Vekt luftlinjer",                          "RD Vekt luftlinjer",                         "Regional",     ""),
+            ("Vekt sjøkabler",                           "RD Vekt sjøkabler",                          "Regional",     ""),
+            ("Vekt stasjonsvariabel",                    "RD Vekt stasjonsvariabel",                   "Regional",     ""),
+            ("Vekt jordkabler",                          "RD Vekt jordkabler",                         "Regional",     ""),
         ]
 
         rows: list[dict] = []
@@ -362,9 +604,10 @@ class PrognoseCalculator:
             row: dict = {"Selskap": sel, "Parameter": param,
                          "Nettnivå": net, "Enhet": unit}
             for _, r in fc.iterrows():
-                row[int(r["År"])] = r[col]
+                row[int(r["År"])] = r.get(col, 0)
             rows.append(row)
 
+        # Samlet (aggregated) rows
         for param, col, unit in [
             ("Kostnadsgrunnlag", "Kostnadsgrunnlag", "kkr"),
             ("Kostnadsnorm",     "Kostnadsnorm",     "kkr"),
