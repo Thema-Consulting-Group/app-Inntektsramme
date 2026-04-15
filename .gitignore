@@ -1,3 +1,9 @@
 /Results/*
 /__pycache__/*
 .vscode/settings.json
+/junk/
+# Excel temp lock files and dev artifacts
+~$*.xlsx
+~$*.xlsb
+rme_table.xlsx
+rme_table_forecast.xlsx

@@ -7,7 +7,7 @@ using the same formula as the THEMA cost forecast Excel.
 
 Usage
 -----
-    from rme_table import grunnlagsdata_to_rme, rme_table_with_forecast
+    from kostnader import grunnlagsdata_to_rme, rme_table_with_forecast
 
     # Historical only (2020-2024)
     hist = grunnlagsdata_to_rme("Results/Run_.../2026-04-14_grunnlagsdata.csv")

@@ -1034,7 +1034,7 @@ if active_step == 2:
 # STEG 3 – RME Rapporteringstabell
 # ═══════════════════════════════════════════════════════════════════════
 if active_step == 3:
-    from rme_table import grunnlagsdata_to_rme, rme_table_with_forecast  # noqa: PLC0415
+    from kostnader import grunnlagsdata_to_rme, rme_table_with_forecast  # noqa: PLC0415
 
     _cfg3_raw: dict = _yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
 

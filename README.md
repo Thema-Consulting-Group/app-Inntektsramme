@@ -1,8 +1,8 @@
 # Inntektsramme – Brukerveiledning
 
-## Eneste krav: Docker Desktop
+## Docker Desktop
 
-Last ned og installer **Docker Desktop** én gang:
+Last ned og installer **Docker Desktop**:
 
 https://www.docker.com/products/docker-desktop/
 
@@ -21,8 +21,7 @@ Dobbeltklikk på **`start.bat`** i prosjektmappen.
 ./start.sh
 ```
 
-Første gang tar det 10–20 minutter å laste ned og bygge alt (R, Python, pakker).
-Neste gang starter appen på under ett minutt.
+Første gang tar det 10–20 minutter å laste ned og bygge tilhørende pakker.
 
 Når du ser teksten `You can now view your Streamlit app in your browser`, åpne:
 
