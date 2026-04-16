@@ -13,7 +13,7 @@
   if (!"plyr" %in% installed.packages()) install.packages("plyr")
   if (!"dplyr" %in% installed.packages()) install.packages("dplyr")
   if (!"openxlsx" %in% installed.packages()) install.packages("openxlsx")
-  if ("!tidyverse" %in% installed.packages()) install.packages("tidyverse")
+  if (!"tidyverse" %in% installed.packages()) install.packages("tidyverse")
   if (!"writexl" %in% installed.packages()) install.packages("writexl")
   if (!"readxl" %in% installed.packages()) install.packages("readxl")
   library(tidyverse)

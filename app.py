@@ -769,8 +769,8 @@ if active_step == 2:
                     value=float(_cfg4_raw.get("forutsetninger", {}).get("rho", 0.7)),
                     step=0.05, format="%.2f", key="rho4")
 
-        # ── Save / Reset ─────────────────────────────────────────────
-        _sa, _sb, _ = st.columns([1, 1, 6])
+        # ── Save / Reset / Download ──────────────────────────────────
+        _sa, _sb, _sc, _ = st.columns([1, 1, 1, 4])
         with _sa:
             _save4 = st.button("Lagre", type="primary", key="save4")
         with _sb:
@@ -779,6 +779,14 @@ if active_step == 2:
                            "avs_sats4", "lab_ld", "lab_rd", "rho4"):
                     st.session_state.pop(k, None)
                 st.rerun()
+        with _sc:
+            st.download_button(
+                "CSV",
+                data=_edited_foru.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                file_name=f"forutsetninger_{_sel_comp.replace(' ', '_')}.csv",
+                mime="text/csv",
+                key="dl_foru_csv",
+            )
 
         if _save4:
             _cfg_w = _yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -808,6 +816,17 @@ if active_step == 2:
         _csv_candidates = sorted(_run_dir.glob("*grunnlagsdata.csv"), reverse=True)
         if _csv_candidates:
             _grunnlagsdata_csv = str(_csv_candidates[0])
+    if not _grunnlagsdata_csv:
+        # Fallback: scan Results/Run_* dirs newest-first
+        _run_dirs_p = sorted(
+            [d for d in (ROOT_DIR / "Results").iterdir() if d.is_dir() and d.name.startswith("Run_")],
+            reverse=True,
+        )
+        for _rd in _run_dirs_p:
+            _candidates = sorted(_rd.glob("*grunnlagsdata.csv"), reverse=True)
+            if _candidates:
+                _grunnlagsdata_csv = str(_candidates[0])
+                break
 
     _calc = PrognoseCalculator(
         base_ir=_base_ir_row,
@@ -1046,6 +1065,17 @@ if active_step == 3:
         _csv3_candidates = sorted(_run_dir3.glob("*grunnlagsdata.csv"), reverse=True)
         if _csv3_candidates:
             _rme_csv_path = str(_csv3_candidates[0])
+    if not _rme_csv_path:
+        # Fallback: scan Results/Run_* dirs newest-first
+        _run_dirs3 = sorted(
+            [d for d in (ROOT_DIR / "Results").iterdir() if d.is_dir() and d.name.startswith("Run_")],
+            reverse=True,
+        )
+        for _rd3 in _run_dirs3:
+            _candidates3 = sorted(_rd3.glob("*grunnlagsdata.csv"), reverse=True)
+            if _candidates3:
+                _rme_csv_path = str(_candidates3[0])
+                break
 
     if not _rme_csv_path:
         st.warning(
