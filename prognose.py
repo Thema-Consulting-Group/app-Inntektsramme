@@ -67,6 +67,94 @@ DEFAULT_DV_VEKST = {
 }
 
 _INV_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "investeringer.csv")
+_INV_MODEL_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "investeringer_from_model.csv")
+
+
+def build_investeringer_from_model(
+    grunnlagsdata_csv: str,
+    forutsetninger: dict | None = None,
+    output_path: str = _INV_MODEL_CSV,
+    avs_sats_frac: float = 0.04,
+    n_lookback: int = 5,
+) -> pd.DataFrame:
+    """Compute historical + forecast investments from grunnlagsdata.csv for all companies.
+
+    Historical:  inv_sf_t = (bv.sf_t - bv.sf_{t-1}) + dep.sf_t  (1000 NOK)
+    Forecast:    5-yr average bridged to base-year prices via KPI, then grown by KPI each year.
+
+    Output columns: orgn; selskap; nettnivaa; komponent; {hist_inv_years}; avg_5yr; {forecast_years}
+    Writes to output_path (semicolon CSV) and returns the DataFrame.
+    """
+    f = forutsetninger or DEFAULT_FORUTSETNINGER
+    kpi_series: dict = f.get("kpi", DEFAULT_FORUTSETNINGER["kpi"])
+
+    try:
+        df = pd.read_csv(grunnlagsdata_csv).fillna(0)
+    except Exception:
+        return pd.DataFrame()
+
+    all_hist_years = sorted(int(y) for y in df["y"].unique())
+    # Investment can only be computed from the 2nd year onward (need prior year)
+    inv_hist_years = all_hist_years[1:]
+
+    rows = []
+    for orgn, comp_df in df.groupby("orgn"):
+        comp_name = str(comp_df["comp"].iloc[0]) if "comp" in comp_df.columns else str(orgn)
+        comp_years = sorted(int(y) for y in comp_df["y"].unique())
+
+        # Year-on-year investment per sf/gf component
+        inv_data: dict[str, dict[int, float]] = {
+            "ld_sf": {}, "ld_gf": {}, "rd_sf": {}, "rd_gf": {}
+        }
+        for idx in range(1, len(comp_years)):
+            py, cy = comp_years[idx - 1], comp_years[idx]
+            pr = comp_df[comp_df["y"] == py].iloc[0]
+            cr = comp_df[comp_df["y"] == cy].iloc[0]
+
+            def _g(r, col: str) -> float:
+                return float(r.get(col, 0) or 0)
+
+            inv_data["ld_sf"][cy] = (_g(cr, "ld_bv.sf") - _g(pr, "ld_bv.sf")) + _g(cr, "ld_dep.sf")
+            inv_data["ld_gf"][cy] = (_g(cr, "ld_bv.gf") - _g(pr, "ld_bv.gf")) + _g(cr, "ld_dep.gf")
+            inv_data["rd_sf"][cy] = (_g(cr, "rd_bv.sf") - _g(pr, "rd_bv.sf")) + _g(cr, "rd_dep.sf")
+            inv_data["rd_gf"][cy] = (_g(cr, "rd_bv.gf") - _g(pr, "rd_bv.gf")) + _g(cr, "rd_dep.gf")
+
+        for key in inv_data:
+            nettnivaa, komponent = key.split("_")
+            vals_map = inv_data[key]
+            vals_list = [v for _, v in sorted(vals_map.items())]
+            avg_raw = float(np.mean(vals_list[-n_lookback:])) if vals_list else 0.0
+
+            # Forecast starts from last_hist + 1 (includes e.g. 2025 if hist ends at 2024)
+            last_hist = max(vals_map.keys()) if vals_map else (_BASE_YEAR - 1)
+            end_yr = max(FORECAST_YEARS)
+            full_fcst_years = list(range(last_hist + 1, end_yr + 1))
+
+            # Cumulative KPI growth from last_hist — no separate bridge needed
+            kpi_cum = 1.0
+            fcst: dict[int, float] = {}
+            for yr in full_fcst_years:
+                kpi_cum *= (1 + float(kpi_series.get(yr, 2.0)) / 100)
+                fcst[yr] = round(avg_raw * kpi_cum, 1)
+
+            row: dict = {
+                "orgn": int(orgn),
+                "selskap": comp_name,
+                "nettnivaa": nettnivaa,
+                "komponent": komponent,
+                "avg_5yr_1000NOK": round(avg_raw, 1),
+            }
+            for yr in inv_hist_years:
+                row[str(yr)] = round(vals_map.get(yr, 0.0), 1)
+            for yr in full_fcst_years:
+                row[str(yr)] = fcst[yr]
+
+            rows.append(row)
+
+    result_df = pd.DataFrame(rows)
+    if output_path and not result_df.empty:
+        result_df.to_csv(output_path, index=False, sep=";", encoding="utf-8-sig")
+    return result_df
 
 
 def load_investeringer_for_company(company_id: int, csv_path: str = _INV_CSV) -> dict:
@@ -148,7 +236,9 @@ class PrognoseCalculator:
         labor_share_rd: float = 0.30,
         fusjon: dict | None = None,
         grunnlagsdata_csv_path: str | None = None,
+        use_historical_inv: bool = True,
     ):
+        self.use_historical_inv = use_historical_inv
         self.f = forutsetninger or DEFAULT_FORUTSETNINGER
         # If no override passed, look up per-company values from investeringer.csv
         if investeringer is None:
@@ -278,6 +368,14 @@ class PrognoseCalculator:
         self.rd_wv_sc0 = 0.0
         self.rd_wv_ss0 = 0.0
 
+        # Historical investment defaults (populated when grunnlagsdata is available)
+        self._has_investment_history = False
+        self.avg_inv_sf_ld = 0.0
+        self.avg_inv_gf_ld = 0.0
+        self.avg_inv_sf_rd = 0.0
+        self.avg_inv_gf_rd = 0.0
+        self.last_hist_year = _BASE_YEAR - 1
+
         if csv_path is None or not os.path.exists(csv_path):
             return
 
@@ -337,6 +435,36 @@ class PrognoseCalculator:
         self.rd_wv_sc0 = _g("rd_wv.sc")
         self.rd_wv_ss0 = _g("rd_wv.ss")
 
+        # Historical investment: avg of last 5 years (1000 NOK) per sf/gf split
+        # Formula: inv_t = (bv_t - bv_{t-1}) + dep_t
+        self.last_hist_year = base_yr
+        all_years = sorted(comp_df["y"].unique())
+        lookback = all_years[-6:]  # up to 6 years → up to 5 investment observations
+
+        def _g2(r, col: str) -> float:
+            return float(r.get(col, 0) or 0)
+
+        _inv_sf_ld: list[float] = []
+        _inv_gf_ld: list[float] = []
+        _inv_sf_rd: list[float] = []
+        _inv_gf_rd: list[float] = []
+
+        for _idx in range(1, len(lookback)):
+            _py, _cy = lookback[_idx - 1], lookback[_idx]
+            _pr = comp_df[comp_df["y"] == _py].iloc[0]
+            _cr = comp_df[comp_df["y"] == _cy].iloc[0]
+            _inv_sf_ld.append((_g2(_cr, "ld_bv.sf") - _g2(_pr, "ld_bv.sf")) + _g2(_cr, "ld_dep.sf"))
+            _inv_gf_ld.append((_g2(_cr, "ld_bv.gf") - _g2(_pr, "ld_bv.gf")) + _g2(_cr, "ld_dep.gf"))
+            _inv_sf_rd.append((_g2(_cr, "rd_bv.sf") - _g2(_pr, "rd_bv.sf")) + _g2(_cr, "rd_dep.sf"))
+            _inv_gf_rd.append((_g2(_cr, "rd_bv.gf") - _g2(_pr, "rd_bv.gf")) + _g2(_cr, "rd_dep.gf"))
+
+        if _inv_sf_ld:
+            self._has_investment_history = True
+            self.avg_inv_sf_ld = float(np.mean(_inv_sf_ld[-5:]))
+            self.avg_inv_gf_ld = float(np.mean(_inv_gf_ld[-5:]))
+            self.avg_inv_sf_rd = float(np.mean(_inv_sf_rd[-5:]))
+            self.avg_inv_gf_rd = float(np.mean(_inv_gf_rd[-5:]))
+
     # ------------------------------------------------------------------
     # Merger synergy
     # ------------------------------------------------------------------
@@ -378,6 +506,23 @@ class PrognoseCalculator:
         ld_kile = self.ld_kile
         rd_kile = self.rd_kile
 
+        # Absolute investment mode: track sf/gf BFV separately
+        _ld_bfv_sf = self.ld_bfv_sf0
+        _ld_bfv_gf = self.ld_bfv_gf0
+        _rd_bfv_sf = self.rd_bfv_sf0
+        _rd_bfv_gf = self.rd_bfv_gf0
+
+        # KPI bridge: bring avg investment from last_hist_year to _BASE_YEAR price level
+        _default_kpi = self._get(self.f["kpi"], _BASE_YEAR, 2.0)
+        _inv_kpi_bridge = 1.0
+        for _yr in range(self.last_hist_year + 1, _BASE_YEAR + 1):
+            _inv_kpi_bridge *= (1 + self._get(self.f["kpi"], _yr, _default_kpi) / 100)
+        _inv_sf_ld_base = self.avg_inv_sf_ld * _inv_kpi_bridge
+        _inv_gf_ld_base = self.avg_inv_gf_ld * _inv_kpi_bridge
+        _inv_sf_rd_base = self.avg_inv_sf_rd * _inv_kpi_bridge
+        _inv_gf_rd_base = self.avg_inv_gf_rd * _inv_kpi_bridge
+        _inv_kpi_cum = 1.0  # accumulates KPI growth beyond _BASE_YEAR
+
         # Sub-component tracking (grown in parallel with mat/lab)
         ld_pens = self.ld_pens0
         ld_sal = self.ld_sal0
@@ -401,8 +546,6 @@ class PrognoseCalculator:
                 dv_gr = self._get(self.dv_v["dv_ekskl_lonn_pct"], year, 2.5) / 100
                 lonn_gr = self._get(self.dv_v["lonn_ekskl_pensjon_pct"], year, 2.5) / 100
                 kpi = self._get(self.f["kpi"], year, 2.0) / 100
-                inv_ld = self._get(self.inv["dnett_pct"], year, 0) / 100
-                inv_rd = self._get(self.inv["rnett_pct"], year, 0) / 100
 
                 ld_dv_mat *= 1 + dv_gr
                 ld_dv_lab *= 1 + lonn_gr
@@ -422,8 +565,24 @@ class PrognoseCalculator:
                 rd_sal_cap *= 1 + lonn_gr
                 rd_utred *= 1 + dv_gr
 
-                ld_bfv = ld_bfv * (1 + inv_ld - self.avs_sats_frac)
-                rd_bfv = rd_bfv * (1 + inv_rd - self.avs_sats_frac)
+                # BFV: historical avg investment (KPI-grown) or fallback to % of BFV
+                _inv_kpi_cum *= (1 + kpi)
+                if self.use_historical_inv and self._has_investment_history:
+                    _ld_inv_sf = _inv_sf_ld_base * _inv_kpi_cum
+                    _ld_inv_gf = _inv_gf_ld_base * _inv_kpi_cum
+                    _rd_inv_sf = _inv_sf_rd_base * _inv_kpi_cum
+                    _rd_inv_gf = _inv_gf_rd_base * _inv_kpi_cum
+                    _ld_bfv_sf = _ld_bfv_sf + _ld_inv_sf - _ld_bfv_sf * self.avs_sats_frac
+                    _ld_bfv_gf = _ld_bfv_gf + _ld_inv_gf - _ld_bfv_gf * self.avs_sats_frac
+                    _rd_bfv_sf = _rd_bfv_sf + _rd_inv_sf - _rd_bfv_sf * self.avs_sats_frac
+                    _rd_bfv_gf = _rd_bfv_gf + _rd_inv_gf - _rd_bfv_gf * self.avs_sats_frac
+                    ld_bfv = _ld_bfv_sf + _ld_bfv_gf
+                    rd_bfv = _rd_bfv_sf + _rd_bfv_gf
+                else:
+                    inv_ld = self._get(self.inv["dnett_pct"], year, 0) / 100
+                    inv_rd = self._get(self.inv["rnett_pct"], year, 0) / 100
+                    ld_bfv = ld_bfv * (1 + inv_ld - self.avs_sats_frac)
+                    rd_bfv = rd_bfv * (1 + inv_rd - self.avs_sats_frac)
 
                 ld_kile *= 1 + kpi
                 rd_kile *= 1 + kpi
@@ -441,11 +600,17 @@ class PrognoseCalculator:
             ld_avs_t = ld_bfv * self.avs_sats_frac
             rd_avs_t = rd_bfv * self.avs_sats_frac
 
-            # BFV sf/gf split (ratio preserved from base year)
-            ld_bfv_sf = ld_bfv * self.ld_sf_ratio
-            ld_bfv_gf = ld_bfv * (1 - self.ld_sf_ratio)
-            rd_bfv_sf = rd_bfv * self.rd_sf_ratio
-            rd_bfv_gf = rd_bfv * (1 - self.rd_sf_ratio)
+            # BFV sf/gf split
+            if self.use_historical_inv and self._has_investment_history:
+                ld_bfv_sf = _ld_bfv_sf
+                ld_bfv_gf = _ld_bfv_gf
+                rd_bfv_sf = _rd_bfv_sf
+                rd_bfv_gf = _rd_bfv_gf
+            else:
+                ld_bfv_sf = ld_bfv * self.ld_sf_ratio
+                ld_bfv_gf = ld_bfv * (1 - self.ld_sf_ratio)
+                rd_bfv_sf = rd_bfv * self.rd_sf_ratio
+                rd_bfv_gf = rd_bfv * (1 - self.rd_sf_ratio)
             ld_avs_sf = ld_bfv_sf * self.avs_sats_frac
             ld_avs_gf = ld_bfv_gf * self.avs_sats_frac
             rd_avs_sf = rd_bfv_sf * self.avs_sats_frac
