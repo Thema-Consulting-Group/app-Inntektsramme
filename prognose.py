@@ -237,8 +237,10 @@ class PrognoseCalculator:
         fusjon: dict | None = None,
         grunnlagsdata_csv_path: str | None = None,
         use_historical_inv: bool = True,
+        edited_inv_nok: dict | None = None,
     ):
         self.use_historical_inv = use_historical_inv
+        self.edited_inv_nok = edited_inv_nok or {}  # {inv_sf_ld, inv_gf_ld, inv_sf_rd, inv_gf_rd} → {yr: nok}
         self.f = forutsetninger or DEFAULT_FORUTSETNINGER
         # If no override passed, look up per-company values from investeringer.csv
         if investeringer is None:
@@ -565,9 +567,21 @@ class PrognoseCalculator:
                 rd_sal_cap *= 1 + lonn_gr
                 rd_utred *= 1 + dv_gr
 
-                # BFV: historical avg investment (KPI-grown) or fallback to % of BFV
+                # BFV: edited investments (absolute NOK) → historical avg (KPI-grown) → fallback % of BFV
                 _inv_kpi_cum *= (1 + kpi)
-                if self.use_historical_inv and self._has_investment_history:
+                if self.edited_inv_nok:
+                    # User has edited investments in absolute NOK — use those directly
+                    _ld_inv_sf = self.edited_inv_nok.get("inv_sf_ld", {}).get(year, 0)
+                    _ld_inv_gf = self.edited_inv_nok.get("inv_gf_ld", {}).get(year, 0)
+                    _rd_inv_sf = self.edited_inv_nok.get("inv_sf_rd", {}).get(year, 0)
+                    _rd_inv_gf = self.edited_inv_nok.get("inv_gf_rd", {}).get(year, 0)
+                    _ld_bfv_sf = _ld_bfv_sf + _ld_inv_sf - _ld_bfv_sf * self.avs_sats_frac
+                    _ld_bfv_gf = _ld_bfv_gf + _ld_inv_gf - _ld_bfv_gf * self.avs_sats_frac
+                    _rd_bfv_sf = _rd_bfv_sf + _rd_inv_sf - _rd_bfv_sf * self.avs_sats_frac
+                    _rd_bfv_gf = _rd_bfv_gf + _rd_inv_gf - _rd_bfv_gf * self.avs_sats_frac
+                    ld_bfv = _ld_bfv_sf + _ld_bfv_gf
+                    rd_bfv = _rd_bfv_sf + _rd_bfv_gf
+                elif self.use_historical_inv and self._has_investment_history:
                     _ld_inv_sf = _inv_sf_ld_base * _inv_kpi_cum
                     _ld_inv_gf = _inv_gf_ld_base * _inv_kpi_cum
                     _rd_inv_sf = _inv_sf_rd_base * _inv_kpi_cum

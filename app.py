@@ -14,6 +14,7 @@ from pathlib import Path
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 import yaml as _yaml
 
@@ -340,7 +341,7 @@ if active_step == 1:
             new_ld   = st.text_input("data_resultater_ld_path", value=_cfg_raw.get("data_resultater_ld_path", ""), key="p_ld")
             new_rd   = st.text_input("data_resultater_rd_path", value=_cfg_raw.get("data_resultater_rd_path", ""), key="p_rd")
 
-        cs, cr, _ = st.columns([1, 1, 5])
+        cs, cr, c_toggle = st.columns([1, 1, 2])
         with cs:
             save = st.button("Lagre konfigurasjon", type="primary", key="cfg_save")
         with cr:
@@ -348,96 +349,30 @@ if active_step == 1:
                 for key in ("fp_editor", "gen_editor", "ir_k", "renter", "p_irir", "p_ld", "p_rd"):
                     st.session_state.pop(key, None)
                 st.rerun()
+        with c_toggle:
+            _save_to_file = st.toggle("Lagre til config.yaml", value=False, key="cfg_save_to_file",
+                                      help="AV = kun session, PÅ = persisterer til config.yaml")
 
         if save:
-            new_fp = {row["Parameter"]: row["Verdi"] for _, row in edited_fp.iterrows()}
-            _cfg_raw["irir_results_path"]        = new_irir
-            _cfg_raw["data_resultater_ld_path"]  = new_ld
-            _cfg_raw["data_resultater_rd_path"]  = new_rd
-            _cfg_raw["forutsetninger"]["rho"]    = new_rho
-            _cfg_raw["forutsetninger"]["finansparametere"] = new_fp
-            _cfg_raw["forutsetninger"]["kpi_justering"]    = {2024: new_kpi_2024, 2026: new_kpi_2026}
-            _cfg_raw["forutsetninger"]["aarslonn"]         = {2024: new_wage_2024, 2026: new_wage_2026}
-            _cfg_raw["kalibrering"]["sum_ir_k_per_sum_akg_pct"]       = new_ir_k
-            _cfg_raw["kalibrering"]["sum_renter_avvik_per_sum_akg_pct"] = new_renter
-            CONFIG_PATH.write_text(
-                _yaml.dump(_cfg_raw, allow_unicode=True, sort_keys=False, default_flow_style=False),
-                encoding="utf-8",
-            )
-            st.success("config.yaml lagret — klikk **Oppdater inntektsramme** for å rekalkulere.")
-
-        # ── Investeringer per selskap ────────────────────────────────
-        _INV_CSV_PATH = ROOT_DIR / "Data" / "investeringer.csv"
-        st.subheader("Investeringer per selskap (% av BFV)")
-
-        def _load_inv_csv() -> pd.DataFrame:
-            if _INV_CSV_PATH.exists():
-                return pd.read_csv(_INV_CSV_PATH, sep=";", dtype={"id": int})
-            return pd.DataFrame()
-
-        def _pivot_inv(df: pd.DataFrame, nettnivaa: str) -> pd.DataFrame:
-            sub = df[df["nettnivaa"] == nettnivaa].copy()
-            year_cols = [c for c in df.columns if c.isdigit()]
-            result = sub[["selskap"] + year_cols].rename(columns={"selskap": "Selskap"})
-            return result.reset_index(drop=True)
-
-        def _unpivot_inv(wide: pd.DataFrame, id_series: pd.Series, nettnivaa: str) -> pd.DataFrame:
-            year_cols = [c for c in wide.columns if c != "Selskap"]
-            rows = []
-            for i, row in wide.iterrows():
-                rows.append({
-                    "id": int(id_series.iloc[i]),
-                    "selskap": row["Selskap"],
-                    "nettnivaa": nettnivaa,
-                    **{y: float(row[y]) for y in year_cols},
-                })
-            return pd.DataFrame(rows)
-
-        _inv_df_full = _load_inv_csv()
-
-        if _inv_df_full.empty:
-            st.warning(
-                "`Data/investeringer.csv` ikke funnet. "
-                "Commit eller generer filen for å aktivere redigering her."
-            )
-        else:
-            _year_cols = [c for c in _inv_df_full.columns if c.isdigit()]
-            _col_cfg_inv = {y: st.column_config.NumberColumn(format="%.1f %%") for y in _year_cols}
-            _id_dnett = _inv_df_full[_inv_df_full["nettnivaa"] == "dnett_pct"].reset_index(drop=True)["id"]
-            _id_rnett = _inv_df_full[_inv_df_full["nettnivaa"] == "rnett_pct"].reset_index(drop=True)["id"]
-
-            _tab_dn, _tab_rn = st.tabs(["Distribusjonsnett (dnett_pct)", "Regionalnett (rnett_pct)"])
-            with _tab_dn:
-                _dn_wide = _pivot_inv(_inv_df_full, "dnett_pct")
-                _edited_dn = st.data_editor(
-                    _dn_wide, use_container_width=True, hide_index=True,
-                    disabled=["Selskap"], column_config=_col_cfg_inv, key="inv_csv_dn",
-                )
-            with _tab_rn:
-                _rn_wide = _pivot_inv(_inv_df_full, "rnett_pct")
-                _edited_rn = st.data_editor(
-                    _rn_wide, use_container_width=True, hide_index=True,
-                    disabled=["Selskap"], column_config=_col_cfg_inv, key="inv_csv_rn",
-                )
-
-            _ci_save, _ci_reset, _ = st.columns([1, 1, 5])
-            with _ci_save:
-                _save_inv_csv = st.button("Lagre investeringer", type="primary", key="save_inv_csv")
-            with _ci_reset:
-                if st.button("Tilbakestill", key="reset_inv_csv"):
-                    st.session_state.pop("inv_csv_dn", None)
-                    st.session_state.pop("inv_csv_rn", None)
-                    st.rerun()
-
-            if _save_inv_csv:
-                _new_dn = _unpivot_inv(_edited_dn, _id_dnett, "dnett_pct")
-                _new_rn = _unpivot_inv(_edited_rn, _id_rnett, "rnett_pct")
-                _combined = pd.concat([_new_dn, _new_rn]).sort_values(["id", "nettnivaa"]).reset_index(drop=True)
-                _INV_CSV_PATH.write_text(
-                    _combined.to_csv(index=False, sep=";"),
+            if _save_to_file:
+                new_fp = {row["Parameter"]: row["Verdi"] for _, row in edited_fp.iterrows()}
+                _cfg_raw["irir_results_path"]        = new_irir
+                _cfg_raw["data_resultater_ld_path"]  = new_ld
+                _cfg_raw["data_resultater_rd_path"]  = new_rd
+                _cfg_raw["forutsetninger"]["rho"]    = new_rho
+                _cfg_raw["forutsetninger"]["finansparametere"] = new_fp
+                _cfg_raw["forutsetninger"]["kpi_justering"]    = {2024: new_kpi_2024, 2026: new_kpi_2026}
+                _cfg_raw["forutsetninger"]["aarslonn"]         = {2024: new_wage_2024, 2026: new_wage_2026}
+                _cfg_raw["kalibrering"]["sum_ir_k_per_sum_akg_pct"]       = new_ir_k
+                _cfg_raw["kalibrering"]["sum_renter_avvik_per_sum_akg_pct"] = new_renter
+                CONFIG_PATH.write_text(
+                    _yaml.dump(_cfg_raw, allow_unicode=True, sort_keys=False, default_flow_style=False),
                     encoding="utf-8",
                 )
-                st.success("Data/investeringer.csv lagret")
+                st.success("config.yaml lagret — klikk **Oppdater inntektsramme** for å rekalkulere.")
+            else:
+                st.info("Endringer lagret for denne sesjonen (config.yaml ikke endret)")
+
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -704,6 +639,26 @@ if active_step == 2:
         _model_inv_years: list[int] = []
         _model_ld: dict[int, float] = {}
         _model_rd: dict[int, float] = {}
+        _bfv_ld: dict[int, float] = {}
+        _bfv_rd: dict[int, float] = {}
+        _inv_nok_dict: dict = {}  # Will hold edited NOK investments if model data exists
+
+        # Company-specific session state keys for edited investments
+        _inv_ld_key = f"inv_edited_ld_{_sel_id4}"
+        _inv_rd_key = f"inv_edited_rd_{_sel_id4}"
+
+        # Load BFV values from grunnlagsdata for % calculation
+        if _grunnlagsdata_csv:
+            try:
+                _gdf = pd.read_csv(_grunnlagsdata_csv).fillna(0)
+                _gdf_comp = _gdf[_gdf["orgn"] == _sel_orgn]
+                if not _gdf_comp.empty:
+                    for _, _gr in _gdf_comp.iterrows():
+                        _yr = int(_gr.get("y", 0))
+                        _bfv_ld[_yr] = float(_gr.get("ld_bv.sf", 0)) + float(_gr.get("ld_bv.gf", 0))
+                        _bfv_rd[_yr] = float(_gr.get("rd_bv.sf", 0)) + float(_gr.get("rd_bv.gf", 0))
+            except Exception:
+                pass
 
         if _inv_model_csv_path.exists() and _sel_orgn:
             try:
@@ -724,75 +679,156 @@ if active_step == 2:
         if _has_model_inv:
             _hist_yr_cols = [y for y in _model_inv_years if y < _YEARS[0]]
             _fcst_yr_cols = [y for y in _model_inv_years if y >= _YEARS[0]]
-            _inv_model_df = pd.DataFrame({
-                "År": _hist_yr_cols + _fcst_yr_cols,
-                "Dnett (1000 NOK)": [_model_ld.get(y, 0) for y in _hist_yr_cols + _fcst_yr_cols],
-                "Rnett (1000 NOK)": [_model_rd.get(y, 0) for y in _hist_yr_cols + _fcst_yr_cols],
+            
+            # Initialize session state for edited investments (company-specific keys)
+            if _inv_ld_key not in st.session_state:
+                st.session_state[_inv_ld_key] = {y: _model_ld.get(y, 0) for y in _model_inv_years}
+            if _inv_rd_key not in st.session_state:
+                st.session_state[_inv_rd_key] = {y: _model_rd.get(y, 0) for y in _model_inv_years}
+
+            # Editable investment table (NOK) – only historical years editable, forecast auto-calc from 5yr avg
+            _inv_edit_df = pd.DataFrame({
+                "År": _model_inv_years,
+                "Dnett (1000 NOK)": [st.session_state[_inv_ld_key].get(y, _model_ld.get(y, 0)) for y in _model_inv_years],
+                "Rnett (1000 NOK)": [st.session_state[_inv_rd_key].get(y, _model_rd.get(y, 0)) for y in _model_inv_years],
             })
+
             _c_inv, _c_inv_chart = st.columns([2, 3])
             with _c_inv:
-                st.caption("Historisk (obs.) + prognose (KPI-justert snitt) – 1000 NOK")
-                _disp_cols = {"År": st.column_config.NumberColumn(format="%d")}
+                st.caption("Rediger historiske år. Prognose beregnes automatisk fra 5-årig gjennomsnitt.")
+                _inv_edit_cols = {"År": st.column_config.NumberColumn(format="%d", disabled=True)}
                 for _col in ["Dnett (1000 NOK)", "Rnett (1000 NOK)"]:
-                    _disp_cols[_col] = st.column_config.NumberColumn(format="%.0f")
-                _inv_model_df["Type"] = ["Historisk" if y < _YEARS[0] else "Prognose"
-                                         for y in _inv_model_df["År"]]
-                st.dataframe(
-                    _inv_model_df.drop(columns=["Type"]),
-                    hide_index=True, use_container_width=True,
-                    column_config=_disp_cols,
+                    _inv_edit_cols[_col] = st.column_config.NumberColumn(format="%.0f")
+                _inv_edited = st.data_editor(
+                    _inv_edit_df, hide_index=True, use_container_width=True,
+                    column_config=_inv_edit_cols, key=f"inv_nok_editor_{_sel_id4}",
                 )
+                
+                # Update session state from edited values
+                for _, _row in _inv_edited.iterrows():
+                    _yr = int(_row["År"])
+                    _ld_val = float(_row["Dnett (1000 NOK)"])
+                    _rd_val = float(_row["Rnett (1000 NOK)"])
+                    st.session_state[_inv_ld_key][_yr] = _ld_val
+                    st.session_state[_inv_rd_key][_yr] = _rd_val
+                
+                # Recalculate forecast years from edited dataframe (not session state to avoid caching issues)
+                _ld_hist = [float(_inv_edited.loc[_inv_edited["År"] == y, "Dnett (1000 NOK)"].iloc[0]) 
+                            if y in _inv_edited["År"].values else _model_ld.get(y, 0) for y in _hist_yr_cols]
+                _rd_hist = [float(_inv_edited.loc[_inv_edited["År"] == y, "Rnett (1000 NOK)"].iloc[0])
+                            if y in _inv_edited["År"].values else _model_rd.get(y, 0) for y in _hist_yr_cols]
+                _ld_avg_5yr = float(np.mean(_ld_hist[-5:] if len(_ld_hist) >= 5 else _ld_hist)) if _ld_hist else 0
+                _rd_avg_5yr = float(np.mean(_rd_hist[-5:] if len(_rd_hist) >= 5 else _rd_hist)) if _rd_hist else 0
+                
+                # Build forecast dataframe from recalculated values
+                _kpi_series = forutsetninger_dict.get("kpi", {})
+                _kpi_cum = 1.0
+                _fcst_ld_vals = {}
+                _fcst_rd_vals = {}
+                for _yr in _fcst_yr_cols:
+                    _kpi_pct = float(_kpi_series.get(_yr, 2.0)) / 100
+                    _kpi_cum *= (1 + _kpi_pct)
+                    _fcst_ld_vals[_yr] = round(_ld_avg_5yr * _kpi_cum, 1)
+                    _fcst_rd_vals[_yr] = round(_rd_avg_5yr * _kpi_cum, 1)
+                    st.session_state[_inv_ld_key][_yr] = _fcst_ld_vals[_yr]
+                    st.session_state[_inv_rd_key][_yr] = _fcst_rd_vals[_yr]
+
             with _c_inv_chart:
-                _fig_inv = go.Figure()
-                _fig_inv.add_trace(go.Bar(
-                    x=_hist_yr_cols,
-                    y=[_model_ld.get(y, 0) for y in _hist_yr_cols],
-                    name="Dnett hist.", marker_color="#aac4b0", opacity=0.8,
-                ))
-                _fig_inv.add_trace(go.Bar(
-                    x=_hist_yr_cols,
-                    y=[_model_rd.get(y, 0) for y in _hist_yr_cols],
-                    name="Rnett hist.", marker_color="#d4e8da", opacity=0.8,
-                ))
-                _fig_inv.add_trace(go.Scatter(
-                    x=_fcst_yr_cols, y=[_model_ld.get(y, 0) for y in _fcst_yr_cols],
-                    mode="lines+markers", name="Dnett prognose",
-                    line=dict(color="#1a5632", width=2), marker=dict(size=7),
-                ))
-                _fig_inv.add_trace(go.Scatter(
-                    x=_fcst_yr_cols, y=[_model_rd.get(y, 0) for y in _fcst_yr_cols],
-                    mode="lines+markers", name="Rnett prognose",
-                    line=dict(color="#7ec89b", width=2), marker=dict(size=7),
-                ))
-                _fig_inv.update_layout(
-                    height=260, margin=dict(l=40, r=15, t=25, b=25),
-                    yaxis=dict(title="1000 NOK"), xaxis=dict(dtick=1),
-                    barmode="stack",
-                    legend=dict(orientation="h", y=1.12), plot_bgcolor="#fafbfd",
-                )
+                # Toggle: absolute vs percent
+                _c_tog1, _c_tog2 = st.columns([1, 1])
+                with _c_tog1:
+                    _show_pct = st.toggle("Vis % av BFV", value=False, key="inv_pct_toggle")
+                
+                # Calculate % values if shown
+                if _show_pct:
+                    _ld_pct = {}
+                    _rd_pct = {}
+                    for _yr in _hist_yr_cols:
+                        _bfv_ld_yr = _bfv_ld.get(_yr, 1)
+                        _bfv_rd_yr = _bfv_rd.get(_yr, 1)
+                        _ld_val = float(_inv_edited.loc[_inv_edited["År"] == _yr, "Dnett (1000 NOK)"].iloc[0]) if _yr in _inv_edited["År"].values else 0
+                        _rd_val = float(_inv_edited.loc[_inv_edited["År"] == _yr, "Rnett (1000 NOK)"].iloc[0]) if _yr in _inv_edited["År"].values else 0
+                        _ld_pct[_yr] = (_ld_val / _bfv_ld_yr * 100) if _bfv_ld_yr > 0 else 0
+                        _rd_pct[_yr] = (_rd_val / _bfv_rd_yr * 100) if _bfv_rd_yr > 0 else 0
+                    for _yr in _fcst_yr_cols:
+                        _bfv_ld_yr = _bfv_ld.get(_yr, 1)
+                        _bfv_rd_yr = _bfv_rd.get(_yr, 1)
+                        _ld_pct[_yr] = (_fcst_ld_vals.get(_yr, 0) / _bfv_ld_yr * 100) if _bfv_ld_yr > 0 else 0
+                        _rd_pct[_yr] = (_fcst_rd_vals.get(_yr, 0) / _bfv_rd_yr * 100) if _bfv_rd_yr > 0 else 0
+                    
+                    _fig_inv = go.Figure()
+                    _fig_inv.add_trace(go.Bar(
+                        x=_hist_yr_cols,
+                        y=[_ld_pct.get(y, 0) for y in _hist_yr_cols],
+                        name="Dnett hist.", marker_color="#aac4b0", opacity=0.8,
+                    ))
+                    _fig_inv.add_trace(go.Bar(
+                        x=_hist_yr_cols,
+                        y=[_rd_pct.get(y, 0) for y in _hist_yr_cols],
+                        name="Rnett hist.", marker_color="#d4e8da", opacity=0.8,
+                    ))
+                    _fig_inv.add_trace(go.Scatter(
+                        x=_fcst_yr_cols, y=[_ld_pct.get(y, 0) for y in _fcst_yr_cols],
+                        mode="lines+markers", name="Dnett prognose",
+                        line=dict(color="#1a5632", width=2), marker=dict(size=7),
+                    ))
+                    _fig_inv.add_trace(go.Scatter(
+                        x=_fcst_yr_cols, y=[_rd_pct.get(y, 0) for y in _fcst_yr_cols],
+                        mode="lines+markers", name="Rnett prognose",
+                        line=dict(color="#7ec89b", width=2), marker=dict(size=7),
+                    ))
+                    _fig_inv.update_layout(
+                        height=260, margin=dict(l=40, r=15, t=25, b=25),
+                        yaxis=dict(title="% av BFV", ticksuffix=" %"), xaxis=dict(dtick=1),
+                        barmode="stack",
+                        legend=dict(orientation="h", y=1.12), plot_bgcolor="#fafbfd",
+                    )
+                else:
+                    # Absolute view (NOK) – use edited historical values + recalculated forecast
+                    _fig_inv = go.Figure()
+                    _fig_inv.add_trace(go.Bar(
+                        x=_hist_yr_cols,
+                        y=[float(_inv_edited.loc[_inv_edited["År"] == y, "Dnett (1000 NOK)"].iloc[0]) if y in _inv_edited["År"].values else 0 for y in _hist_yr_cols],
+                        name="Dnett hist.", marker_color="#aac4b0", opacity=0.8,
+                    ))
+                    _fig_inv.add_trace(go.Bar(
+                        x=_hist_yr_cols,
+                        y=[float(_inv_edited.loc[_inv_edited["År"] == y, "Rnett (1000 NOK)"].iloc[0]) if y in _inv_edited["År"].values else 0 for y in _hist_yr_cols],
+                        name="Rnett hist.", marker_color="#d4e8da", opacity=0.8,
+                    ))
+                    _fig_inv.add_trace(go.Scatter(
+                        x=_fcst_yr_cols, y=[_fcst_ld_vals.get(y, 0) for y in _fcst_yr_cols],
+                        mode="lines+markers", name="Dnett prognose",
+                        line=dict(color="#1a5632", width=2), marker=dict(size=7),
+                    ))
+                    _fig_inv.add_trace(go.Scatter(
+                        x=_fcst_yr_cols, y=[_fcst_rd_vals.get(y, 0) for y in _fcst_yr_cols],
+                        mode="lines+markers", name="Rnett prognose",
+                        line=dict(color="#7ec89b", width=2), marker=dict(size=7),
+                    ))
+                    _fig_inv.update_layout(
+                        height=260, margin=dict(l=40, r=15, t=25, b=25),
+                        yaxis=dict(title="1000 NOK"), xaxis=dict(dtick=1),
+                        barmode="stack",
+                        legend=dict(orientation="h", y=1.12), plot_bgcolor="#fafbfd",
+                    )
                 st.plotly_chart(_fig_inv, use_container_width=True)
 
-            with st.expander("Reserve: manuell overstyring (% av BFV)", expanded=False):
-                st.caption("Brukes kun dersom historiske investeringsdata mangler.")
-                _sel_id_for_inv = int(_base_df.loc[_sel_mask, "ID"].iloc[0])
-                _csv_inv = load_investeringer_for_company(_sel_id_for_inv)
-                _inv_data = {"År": _YEARS}
-                for net_key, net_label in [("dnett_pct", "Dnett"), ("rnett_pct", "Rnett")]:
-                    _inv_data[net_label] = [
-                        float(_saved_inv.get(net_key, {}).get(y,
-                              _csv_inv[net_key].get(y,
-                              DEFAULT_INVESTERINGER[net_key].get(y, 0))))
-                        for y in _YEARS
-                    ]
-                _inv_df = pd.DataFrame(_inv_data)
-                _edited_inv_df = st.data_editor(
-                    _inv_df, hide_index=True, use_container_width=True, disabled=["År"],
-                    column_config={
-                        "Dnett": st.column_config.NumberColumn(format="%.1f %%"),
-                        "Rnett": st.column_config.NumberColumn(format="%.1f %%"),
-                    },
-                    key="inv_editor",
-                )
+            # Build edited investment dict for PrognoseCalculator with recalculated forecasts
+            _inv_nok_dict = {
+                "inv_sf_ld": {}, "inv_gf_ld": {}, "inv_sf_rd": {}, "inv_gf_rd": {}
+            }
+            for _yr in _YEARS:  # Forecast years only
+                if _yr in _fcst_ld_vals:
+                    _inv_nok_dict["inv_sf_ld"][_yr] = _fcst_ld_vals[_yr]
+                    _inv_nok_dict["inv_gf_ld"][_yr] = 0
+                if _yr in _fcst_rd_vals:
+                    _inv_nok_dict["inv_sf_rd"][_yr] = _fcst_rd_vals[_yr]
+                    _inv_nok_dict["inv_gf_rd"][_yr] = 0
+
+            # Use % fallback as investeringer_dict (for old code)
+            investeringer_dict = {"dnett_pct": {y: 0 for y in _YEARS}, "rnett_pct": {y: 0 for y in _YEARS}}
+
         else:
             # Fallback: no model data, show editable % table
             st.info("Historiske investeringsdata ikke tilgjengelig. Bruker % av BFV.", icon="⚠️")
@@ -836,10 +872,11 @@ if active_step == 2:
                 )
                 st.plotly_chart(_fig_inv, use_container_width=True)
 
-        investeringer_dict = {
-            "dnett_pct": {int(r["År"]): float(r["Dnett"]) for _, r in _edited_inv_df.iterrows()},
-            "rnett_pct": {int(r["År"]): float(r["Rnett"]) for _, r in _edited_inv_df.iterrows()},
-        }
+            investeringer_dict = {
+                "dnett_pct": {int(r["År"]): float(r["Dnett"]) for _, r in _edited_inv_df.iterrows()},
+                "rnett_pct": {int(r["År"]): float(r["Rnett"]) for _, r in _edited_inv_df.iterrows()},
+            }
+            _inv_nok_dict = {}  # No edited NOK investments in fallback path
 
         # ── D&V vekst ────────────────────────────────────────────────
         st.subheader("Drifts- og vedlikeholdskostnader (vekst %)")
@@ -954,6 +991,7 @@ if active_step == 2:
         labor_share_rd=_labor_rd,
         fusjon=_cfg4_raw.get("fusjoner", {}).get(_sel_id4),
         grunnlagsdata_csv_path=_grunnlagsdata_csv,
+        edited_inv_nok=_inv_nok_dict if _inv_nok_dict else {},
     )
     _forecast = _calc.build_forecast()
 
