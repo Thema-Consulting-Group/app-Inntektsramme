@@ -1,0 +1,193 @@
+/* ─────────────────────────────────────────────
+   Inntektsramme – custom styles (Tailwind ext.)
+   ───────────────────────────────────────────── */
+
+[x-cloak] { display: none !important; }
+
+/* ── Card ── */
+.card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  padding: 1rem;
+}
+
+/* ── Metric card ── */
+.metric-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  padding: 1rem 1.25rem;
+}
+.metric-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #64748b;
+  margin-bottom: .35rem;
+}
+.metric-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+/* ── Buttons ── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .375rem;
+  padding: .5rem 1rem;
+  font-size: .875rem;
+  font-weight: 600;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  transition: background .15s, opacity .15s;
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+.btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .375rem;
+  padding: .5rem 1rem;
+  font-size: .875rem;
+  font-weight: 500;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  transition: background .15s;
+  cursor: pointer;
+  outline: none;
+}
+.btn-secondary:hover:not(:disabled) { background: #e2e8f0; }
+.btn-secondary:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-xs {
+  display: inline-flex;
+  align-items: center;
+  padding: .25rem .625rem;
+  font-size: .75rem;
+  font-weight: 500;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-xs:hover { background: #e2e8f0; }
+
+/* ── Form controls ── */
+.label {
+  display: block;
+  font-size: .75rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: .375rem;
+}
+
+.input {
+  width: 100%;
+  padding: .4375rem .75rem;
+  font-size: .875rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #1e293b;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  appearance: none;
+}
+.input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+select.input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2394a3b8'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .6rem center;
+  background-size: 1.1rem;
+  padding-right: 2rem;
+  cursor: pointer;
+}
+
+/* ── Data table ── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8125rem;
+}
+.data-table thead {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 1;
+}
+.data-table th {
+  padding: .5rem .75rem;
+  text-align: left;
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.data-table th:hover { color: #2563eb; }
+.data-table td {
+  padding: .4rem .75rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  white-space: nowrap;
+}
+.data-table tbody tr:hover { background: #f8fafc; }
+.data-table tbody tr:last-child td { border-bottom: none; }
+
+/* Numeric cells – right-align */
+.data-table td:not(:first-child) { text-align: right; }
+.data-table th:not(:first-child) { text-align: right; }
+
+/* ── Empty state ── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  border: 2px dashed #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #94a3b8;
+  text-align: center;
+  padding: 2rem;
+}
+
+/* ── Scrollbar styling ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Plotly overrides – clean charts ── */
+.plotly .modebar { opacity: 0.4; }
+.plotly .modebar:hover { opacity: 1; }
+
+/* ── Smooth tab transitions ── */
+[x-show] { transition: opacity .15s ease; }
+
+/* ── Pipeline log ── */
+.font-mono { font-family: 'Menlo', 'Consolas', monospace; }

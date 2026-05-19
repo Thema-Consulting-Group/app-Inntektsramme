@@ -93,9 +93,9 @@ if "active_step" not in st.session_state:
     st.session_state.active_step = 1
 active_step = st.session_state.active_step
 
-_nav_cols = st.columns(3)
+_nav_cols = st.columns(4)
 for _ni, (_nlbl, _ncol) in enumerate(zip(
-    ["1 · RME Modell", "2 · Prognosebygger", "3 · Kostnader"], _nav_cols,
+    ["1 · RME Modell", "2 · Prognosebygger", "3 · Kostnader", "4 · Frontselskapsanalyse"], _nav_cols,
 )):
     with _ncol:
         if st.button(
@@ -166,8 +166,15 @@ if active_step == 1:
                 st.stop()
 
             with st.spinner("Kjører Rscript IRiR.R – dette kan ta lang tid …"):
+                # Patterns to suppress (package startup noise)
+                _suppress_patterns = (
+                    "── Attaching", "✔ ", "✖ ", "── Conflicts", "ℹ ", "Registered S3",
+                    "The following object", "The following packages", "tidyverse",
+                    "Loading required package:", "character(0)",
+                    '[1] "C:/', '[1] "/',
+                )
                 proc = subprocess.Popen(
-                    [rscript, "IRiR.R"],
+                    [rscript, "--quiet", "IRiR.R"],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -177,7 +184,9 @@ if active_step == 1:
                     cwd=str(ROOT_DIR),
                 )
                 for line in proc.stdout:
-                    log_lines.append(line.rstrip())
+                    _stripped = line.rstrip()
+                    if _stripped and not any(_stripped.startswith(p) or p in _stripped for p in _suppress_patterns):
+                        log_lines.append(_stripped)
                     _status_container.text("\n".join(log_lines[-20:]))
                 proc.wait()
 
@@ -695,7 +704,8 @@ if active_step == 2:
 
             _c_inv, _c_inv_chart = st.columns([2, 3])
             with _c_inv:
-                st.caption("Rediger historiske år. Prognose beregnes automatisk fra 5-årig gjennomsnitt.")
+                st.caption("Rediger alle år direkte. Klikk **Auto-beregn** for å beregne prognoseår fra 5-årig historisk gjennomsnitt.")
+                _auto_calc_btn = st.button("Auto-beregn", key=f"auto_inv_{_sel_id4}", help="Beregner prognoseår fra 5-årig historisk gjennomsnitt")
                 _inv_edit_cols = {"År": st.column_config.NumberColumn(format="%d", disabled=True)}
                 for _col in ["Dnett (1000 NOK)", "Rnett (1000 NOK)"]:
                     _inv_edit_cols[_col] = st.column_config.NumberColumn(format="%.0f")
@@ -720,7 +730,7 @@ if active_step == 2:
                 _ld_avg_5yr = float(np.mean(_ld_hist[-5:] if len(_ld_hist) >= 5 else _ld_hist)) if _ld_hist else 0
                 _rd_avg_5yr = float(np.mean(_rd_hist[-5:] if len(_rd_hist) >= 5 else _rd_hist)) if _rd_hist else 0
                 
-                # Build forecast dataframe from recalculated values
+                # Build auto-calc forecast values (for chart + auto-beregn button)
                 _kpi_series = forutsetninger_dict.get("kpi", {})
                 _kpi_cum = 1.0
                 _fcst_ld_vals = {}
@@ -730,8 +740,28 @@ if active_step == 2:
                     _kpi_cum *= (1 + _kpi_pct)
                     _fcst_ld_vals[_yr] = round(_ld_avg_5yr * _kpi_cum, 1)
                     _fcst_rd_vals[_yr] = round(_rd_avg_5yr * _kpi_cum, 1)
-                    st.session_state[_inv_ld_key][_yr] = _fcst_ld_vals[_yr]
-                    st.session_state[_inv_rd_key][_yr] = _fcst_rd_vals[_yr]
+
+                # Reactively update forecast rows when historical values change
+                _hist_hash = hash(tuple(
+                    (y, round(_ld_hist[i], 1), round(_rd_hist[i], 1))
+                    for i, y in enumerate(_hist_yr_cols)
+                ))
+                _hist_hash_key = f"inv_hist_hash_{_sel_id4}"
+                if st.session_state.get(_hist_hash_key) != _hist_hash:
+                    st.session_state[_hist_hash_key] = _hist_hash
+                    for _yr in _fcst_yr_cols:
+                        st.session_state[_inv_ld_key][_yr] = _fcst_ld_vals[_yr]
+                        st.session_state[_inv_rd_key][_yr] = _fcst_rd_vals[_yr]
+                    st.session_state.pop(f"inv_nok_editor_{_sel_id4}", None)
+                    st.rerun()
+
+                # Auto-beregn button also resets forecast rows
+                if _auto_calc_btn:
+                    for _yr in _fcst_yr_cols:
+                        st.session_state[_inv_ld_key][_yr] = _fcst_ld_vals[_yr]
+                        st.session_state[_inv_rd_key][_yr] = _fcst_rd_vals[_yr]
+                    st.session_state.pop(f"inv_nok_editor_{_sel_id4}", None)
+                    st.rerun()
 
             with _c_inv_chart:
                 # Toggle: absolute vs percent
@@ -753,8 +783,10 @@ if active_step == 2:
                     for _yr in _fcst_yr_cols:
                         _bfv_ld_yr = _bfv_ld.get(_yr, 1)
                         _bfv_rd_yr = _bfv_rd.get(_yr, 1)
-                        _ld_pct[_yr] = (_fcst_ld_vals.get(_yr, 0) / _bfv_ld_yr * 100) if _bfv_ld_yr > 0 else 0
-                        _rd_pct[_yr] = (_fcst_rd_vals.get(_yr, 0) / _bfv_rd_yr * 100) if _bfv_rd_yr > 0 else 0
+                        _ld_v2 = float(_inv_edited.loc[_inv_edited["År"] == _yr, "Dnett (1000 NOK)"].iloc[0]) if _yr in _inv_edited["År"].values else _fcst_ld_vals.get(_yr, 0)
+                        _rd_v2 = float(_inv_edited.loc[_inv_edited["År"] == _yr, "Rnett (1000 NOK)"].iloc[0]) if _yr in _inv_edited["År"].values else _fcst_rd_vals.get(_yr, 0)
+                        _ld_pct[_yr] = (_ld_v2 / _bfv_ld_yr * 100) if _bfv_ld_yr > 0 else 0
+                        _rd_pct[_yr] = (_rd_v2 / _bfv_rd_yr * 100) if _bfv_rd_yr > 0 else 0
                     
                     _fig_inv = go.Figure()
                     _fig_inv.add_trace(go.Bar(
@@ -797,12 +829,12 @@ if active_step == 2:
                         name="Rnett hist.", marker_color="#d4e8da", opacity=0.8,
                     ))
                     _fig_inv.add_trace(go.Scatter(
-                        x=_fcst_yr_cols, y=[_fcst_ld_vals.get(y, 0) for y in _fcst_yr_cols],
+                        x=_fcst_yr_cols, y=[float(_inv_edited.loc[_inv_edited["År"] == y, "Dnett (1000 NOK)"].iloc[0]) if y in _inv_edited["År"].values else _fcst_ld_vals.get(y, 0) for y in _fcst_yr_cols],
                         mode="lines+markers", name="Dnett prognose",
                         line=dict(color="#1a5632", width=2), marker=dict(size=7),
                     ))
                     _fig_inv.add_trace(go.Scatter(
-                        x=_fcst_yr_cols, y=[_fcst_rd_vals.get(y, 0) for y in _fcst_yr_cols],
+                        x=_fcst_yr_cols, y=[float(_inv_edited.loc[_inv_edited["År"] == y, "Rnett (1000 NOK)"].iloc[0]) if y in _inv_edited["År"].values else _fcst_rd_vals.get(y, 0) for y in _fcst_yr_cols],
                         mode="lines+markers", name="Rnett prognose",
                         line=dict(color="#7ec89b", width=2), marker=dict(size=7),
                     ))
@@ -814,17 +846,17 @@ if active_step == 2:
                     )
                 st.plotly_chart(_fig_inv, use_container_width=True)
 
-            # Build edited investment dict for PrognoseCalculator with recalculated forecasts
+            # Build edited investment dict for PrognoseCalculator — use what's in the table (edited or auto-calc)
             _inv_nok_dict = {
                 "inv_sf_ld": {}, "inv_gf_ld": {}, "inv_sf_rd": {}, "inv_gf_rd": {}
             }
             for _yr in _YEARS:  # Forecast years only
-                if _yr in _fcst_ld_vals:
-                    _inv_nok_dict["inv_sf_ld"][_yr] = _fcst_ld_vals[_yr]
-                    _inv_nok_dict["inv_gf_ld"][_yr] = 0
-                if _yr in _fcst_rd_vals:
-                    _inv_nok_dict["inv_sf_rd"][_yr] = _fcst_rd_vals[_yr]
-                    _inv_nok_dict["inv_gf_rd"][_yr] = 0
+                _ld_v = float(_inv_edited.loc[_inv_edited["År"] == _yr, "Dnett (1000 NOK)"].iloc[0]) if _yr in _inv_edited["År"].values else _fcst_ld_vals.get(_yr, 0)
+                _rd_v = float(_inv_edited.loc[_inv_edited["År"] == _yr, "Rnett (1000 NOK)"].iloc[0]) if _yr in _inv_edited["År"].values else _fcst_rd_vals.get(_yr, 0)
+                _inv_nok_dict["inv_sf_ld"][_yr] = _ld_v
+                _inv_nok_dict["inv_gf_ld"][_yr] = 0
+                _inv_nok_dict["inv_sf_rd"][_yr] = _rd_v
+                _inv_nok_dict["inv_gf_rd"][_yr] = 0
 
             # Use % fallback as investeringer_dict (for old code)
             investeringer_dict = {"dnett_pct": {y: 0 for y in _YEARS}, "rnett_pct": {y: 0 for y in _YEARS}}
@@ -1303,3 +1335,426 @@ if active_step == 3:
             file_name="rme_rapporteringstabell.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEG 4 – Frontselskapsanalyse
+# ═══════════════════════════════════════════════════════════════════════
+if active_step == 4:
+    from frontselskap import (  # noqa: PLC0415
+        load_ld_dea_inputs, run_ld_scenario, get_peer_shares, get_frontier_companies,
+    )
+
+    st.header("Frontselskapsanalyse – LD")
+    st.caption(
+        "Analysen viser hvor langt et selskap er fra å bli frontselskap i DEA-modellen (trinn 1). "
+        "Trinn 2-geokorreksjon er tilnærmet ved å beholde det opprinnelige (eff_s2 − eff_s1)-avviket. "
+        "Selskaper som fjernes forsvinner helt fra DEA-en (både som referanse og som evaluert selskap) — "
+        "dette tilsvarer en fusjon eller utgang fra markedet."
+    )
+
+    # ── Resolve paths ─────────────────────────────────────────────────
+    _cfg4_raw = _yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    _results_dir4 = ROOT_DIR / "Results"
+    # Try to find ld_InputDEA.csv and Data_Resultater_LD.xlsx
+    _dea_csv_path: Path | None = None
+    _ld_xlsx_path: Path | None = None
+
+    _irir4 = _cfg4_raw.get("irir_results_path", "")
+    if _irir4:
+        _run_dir4 = (ROOT_DIR / _irir4).parent
+        _cand_dea  = _results_dir4 / "ld_InputDEA.csv"
+        _cand_xlsx = _run_dir4 / "Data_Resultater_LD.xlsx"
+        if _cand_dea.exists():
+            _dea_csv_path = _cand_dea
+        if _cand_xlsx.exists():
+            _ld_xlsx_path = _cand_xlsx
+
+    if _dea_csv_path is None and (_results_dir4 / "ld_InputDEA.csv").exists():
+        _dea_csv_path = _results_dir4 / "ld_InputDEA.csv"
+
+    if _ld_xlsx_path is None:
+        _run_dirs4 = sorted(
+            [d for d in _results_dir4.iterdir() if d.is_dir() and d.name.startswith("Run_")],
+            reverse=True,
+        )
+        for _rd4 in _run_dirs4:
+            _cand4 = _rd4 / "Data_Resultater_LD.xlsx"
+            if _cand4.exists():
+                _ld_xlsx_path = _cand4
+                break
+
+    if _dea_csv_path is None or _ld_xlsx_path is None:
+        st.warning(
+            "Finner ikke ld_InputDEA.csv eller Data_Resultater_LD.xlsx. "
+            "Kjør **Steg 1 – RME Modell** for å generere resultatfiler."
+        )
+        st.stop()
+
+    # ── Load data (cached) ─────────────────────────────────────────────
+    @st.cache_data(show_spinner=False)
+    def _load_dea_data(dea_path: str, ld_path: str):
+        dea_df = load_ld_dea_inputs(Path(dea_path).parent)
+        res_ld = pd.read_excel(ld_path, sheet_name="Resultater_LD")
+        return dea_df, res_ld
+
+    _dea_df4, _res_ld4 = _load_dea_data(str(_dea_csv_path), str(_ld_xlsx_path))
+    _id_to_comp4: dict[int, str] = _res_ld4.set_index("id")["comp"].to_dict()
+    _all_comp_options = sorted(
+        [(row["id"], row["comp"]) for _, row in _res_ld4.iterrows()],
+        key=lambda x: x[1],
+    )
+    _comp_label_map = {comp: rid for rid, comp in _all_comp_options}
+
+    # ── Controls ───────────────────────────────────────────────────────
+    _ctrl1, _ctrl2 = st.columns([2, 3])
+
+    with _ctrl1:
+        st.subheader("Fokusselskap")
+        _focus_options = [comp for _, comp in _all_comp_options]
+        _default_focus = "NETTSELSKAPET AS" if "NETTSELSKAPET AS" in _focus_options else _focus_options[0]
+        _focus_comp = st.selectbox(
+            "Velg selskap å analysere",
+            options=_focus_options,
+            index=_focus_options.index(_default_focus),
+            key="fs_focus",
+        )
+        _focus_id = _comp_label_map[_focus_comp]
+
+    with _ctrl2:
+        st.subheader("Fjern fra referansesettet")
+        _excl_options = [comp for _, comp in _all_comp_options]
+        _default_excl = []
+        _excl_comps = st.multiselect(
+            "Velg selskaper som skal ut av DEA-en (simulerer fusjon/utgang)",
+            options=_excl_options,
+            default=_default_excl,
+            key="fs_exclude",
+            help="Disse selskapene fjernes helt fra DEA-en — de verken evalueres eller brukes som referanse. Tilsvarer en fusjon (f.eks. Rakkestad → Elvia).",
+        )
+        _excl_ids = [_comp_label_map[c] for c in _excl_comps]
+
+    st.divider()
+
+    # ── Run scenario (cached on exclude set) ──────────────────────────
+    @st.cache_data(show_spinner="Kjører DEA-scenario …")
+    def _run_scenario(dea_path: str, ld_path: str, excl_ids_key: tuple[int, ...], _v: int = 2) -> pd.DataFrame:
+        # _v bumped to 2: excluded companies now removed from eval set too (merger scenario)
+        dea_df = load_ld_dea_inputs(Path(dea_path).parent)
+        res_ld = pd.read_excel(ld_path, sheet_name="Resultater_LD")
+        return run_ld_scenario(dea_df, res_ld, exclude_ids=list(excl_ids_key))
+
+    _excl_key = tuple(sorted(_excl_ids))
+    _scenario_df = _run_scenario(str(_dea_csv_path), str(_ld_xlsx_path), _excl_key)
+
+    # Pull out the focus company row
+    _focus_row = _scenario_df[_scenario_df["id"] == _focus_id]
+    if _focus_row.empty:
+        st.error(f"Fant ikke {_focus_comp} (id={_focus_id}) i DEA-dataene.")
+        st.stop()
+    _fr = _focus_row.iloc[0]
+
+    # ── Key metrics ────────────────────────────────────────────────────
+    st.subheader(f"Nøkkeltall — {_focus_comp}")
+    _m1, _m2, _m3, _m4 = st.columns(4)
+
+    _s1_base  = _fr["eff_s1_baseline"]
+    _s1_scen  = _fr["eff_s1_scenario"]
+    _s2_base  = _fr["eff_s2_approx_base"]
+    _s2_scen  = _fr["eff_s2_approx_scenario"]
+    _gap_base = _fr["gap_mnok_baseline"]
+    _gap_scen = _fr["gap_mnok_scenario"]
+    _excl_label = ", ".join(_excl_comps) if _excl_comps else "ingen"
+
+    with _m1:
+        st.metric(
+            "Eff. trinn 1 – nåsituasjon",
+            f"{_s1_base:.1%}",
+            help="Stage-1 CRS DEA. 100 % = på fronten.",
+        )
+    with _m2:
+        _delta_s1 = _s1_scen - _s1_base
+        st.metric(
+            "Eff. trinn 1 – scenario",
+            f"{_s1_scen:.1%}",
+            delta=f"{_delta_s1:+.1%}",
+            delta_color="normal",
+            help=f"Etter fjerning av: {_excl_label}",
+        )
+    with _m3:
+        st.metric(
+            "Eff. trinn 2 – nåsituasjon (approx.)",
+            f"{_s2_base:.1%}",
+            help="Stage-1 + original geokorreksjon-offset fra R-kjøringen.",
+        )
+    with _m4:
+        _delta_s2 = _s2_scen - _s2_base
+        st.metric(
+            "Eff. trinn 2 – scenario (approx.)",
+            f"{_s2_scen:.1%}",
+            delta=f"{_delta_s2:+.1%}",
+            delta_color="normal",
+        )
+
+    _g1, _g2 = st.columns(2)
+    with _g1:
+        st.metric(
+            "Kostnadsgap til fronten – nåsituasjon",
+            f"{_gap_base:.1f} MNOK",
+            help="Kostnader som må kuttes (trinn 1) for å nå eff = 100 %.",
+        )
+    with _g2:
+        _delta_gap = _gap_scen - _gap_base
+        st.metric(
+            "Kostnadsgap til fronten – scenario",
+            f"{_gap_scen:.1f} MNOK",
+            delta=f"{_delta_gap:+.1f} MNOK",
+            delta_color="inverse",
+            help=f"Etter fjerning av: {_excl_label}",
+        )
+
+    st.divider()
+
+    # ── Charts ─────────────────────────────────────────────────────────
+    _chart1, _chart2 = st.columns(2)
+
+    # --- Peer weights pie charts ---
+    with _chart1:
+        st.subheader("Referanseselskaper (peers)")
+
+        # Current peers from res_ld NCS columns
+        _ncs_cols = [c for c in _res_ld4.columns if c.startswith("ld_ncs_")]
+        _focus_res_row = _res_ld4[_res_ld4["id"] == _focus_id]
+        if not _focus_res_row.empty and _ncs_cols:
+            _ncs_vals = _focus_res_row.iloc[0][_ncs_cols]
+            _ncs_nonzero = {
+                col.replace("ld_ncs_", ""): float(v)
+                for col, v in _ncs_vals.items()
+                if float(v) > 1e-6
+            }
+        else:
+            _ncs_nonzero = {}
+
+        _peers_scen = get_peer_shares(_fr, _id_to_comp4)
+
+        if not _excl_ids:
+            # No scenario — show R results directly (no tabs)
+            if _ncs_nonzero:
+                _pie_base = go.Figure(go.Pie(
+                    labels=list(_ncs_nonzero.keys()),
+                    values=list(_ncs_nonzero.values()),
+                    hole=0.4,
+                    textinfo="label+percent",
+                    hovertemplate="%{label}: %{value:.3f}<extra></extra>",
+                ))
+                _pie_base.update_layout(
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    height=300,
+                    showlegend=False,
+                )
+                st.plotly_chart(_pie_base, use_container_width=True)
+                st.caption("Peer-vekter fra R-modellen (NCS-kolonner).")
+            else:
+                st.info("Ingen peer-vekter funnet for dette selskapet i R-resultatene.")
+        else:
+            # Scenario active — show before/after tabs
+            _pie_tab_base, _pie_tab_scen = st.tabs(["Nåsituasjon (R-resultater)", "Etter fusjon (LP)"])
+
+            with _pie_tab_base:
+                if _ncs_nonzero:
+                    _pie_base = go.Figure(go.Pie(
+                        labels=list(_ncs_nonzero.keys()),
+                        values=list(_ncs_nonzero.values()),
+                        hole=0.4,
+                        textinfo="label+percent",
+                        hovertemplate="%{label}: %{value:.3f}<extra></extra>",
+                    ))
+                    _pie_base.update_layout(
+                        margin=dict(t=20, b=20, l=20, r=20),
+                        height=300,
+                        showlegend=False,
+                    )
+                    st.plotly_chart(_pie_base, use_container_width=True)
+                else:
+                    st.info("Ingen peer-vekter funnet for dette selskapet i R-resultatene.")
+
+            with _pie_tab_scen:
+                if not _peers_scen.empty:
+                    _excl_note = f" (uten {_excl_label})" if _excl_comps else ""
+                    _pie_scen = go.Figure(go.Pie(
+                        labels=_peers_scen["comp"].tolist(),
+                        values=_peers_scen["lambda"].tolist(),
+                        hole=0.4,
+                        textinfo="label+percent",
+                        hovertemplate="%{label}: lambda=%{value:.3f}<extra></extra>",
+                    ))
+                    _pie_scen.update_layout(
+                        margin=dict(t=20, b=20, l=20, r=20),
+                        height=300,
+                        showlegend=False,
+                    )
+                    st.plotly_chart(_pie_scen, use_container_width=True)
+                    st.caption(
+                        f"Rå DEA-lambda-vekter{_excl_note}. "
+                        "Merk: disse er ikke identiske med NCS-kolonnene fra R (som er kalibrert)."
+                    )
+                else:
+                    st.info(
+                        f"{_focus_comp} er på fronten i scenariet (ingen peers)."
+                        if _s1_scen >= 0.9999
+                        else "Ingen peer-vekter funnet i scenariet."
+                    )
+
+    # --- Efficiency bar chart (all companies) ---
+    with _chart2:
+        st.subheader("Effektivitetsoversikt – alle selskaper")
+        if _excl_ids:
+            st.caption(
+                f"Viser {len(_scenario_df)} selskaper. "
+                f"{len(_excl_ids)} selskap(er) er fjernet fra DEA-en og vises ikke."
+            )
+
+        _bar_df = _scenario_df.copy()
+        _bar_df["label"] = _bar_df["comp"].fillna(_bar_df["id"].astype(str))
+        _bar_df = _bar_df.sort_values("eff_s1_baseline", ascending=True)
+
+        _bar_focus_mask = _bar_df["id"] == _focus_id
+
+        _bar_fig = go.Figure()
+        _bar_fig.add_trace(go.Bar(
+            name="Nåsituasjon",
+            y=_bar_df["label"],
+            x=_bar_df["eff_s1_baseline"],
+            orientation="h",
+            marker_color=[
+                "#e63946" if is_focus else "#4361ee"
+                for is_focus in _bar_focus_mask
+            ],
+            hovertemplate="%{y}: %{x:.3f}<extra>Nåsituasjon</extra>",
+        ))
+        if _excl_ids:
+            _bar_fig.add_trace(go.Bar(
+                name="Etter fusjon",
+                y=_bar_df["label"],
+                x=_bar_df["eff_s1_scenario"],
+                orientation="h",
+                marker_color=[
+                    "#ff6b6b" if is_focus else "#90e0ef"
+                    for is_focus in _bar_focus_mask
+                ],
+                hovertemplate="%{y}: %{x:.3f}<extra>Etter fusjon</extra>",
+            ))
+        _bar_fig.add_vline(x=1.0, line_dash="dash", line_color="green", line_width=1.5,
+                           annotation_text="Front", annotation_position="top right")
+        _bar_fig.update_layout(
+            barmode="overlay",
+            height=max(400, len(_bar_df) * 16),
+            margin=dict(t=20, b=20, l=20, r=20),
+            xaxis_title="Effektivitet (trinn 1)",
+            yaxis_title=None,
+            legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1),
+            xaxis=dict(range=[0, 1.1]),
+        )
+        st.plotly_chart(_bar_fig, use_container_width=True)
+
+    st.divider()
+
+    # ── Frontier composition ───────────────────────────────────────────
+    st.subheader("Frontkomposisjon")
+    st.caption("Selskaper som faktisk definerer effektivitetsfronten (har positiv lambda-vekt for minst ett annet selskap).")
+
+    @st.cache_data(show_spinner=False)
+    def _get_frontiers(dea_path: str, excl_key: tuple[int, ...], _v: int = 2):
+        # _v=2: consistent with run_ld_scenario v2 (exclude from both ref+eval)
+        _df = load_ld_dea_inputs(Path(dea_path).parent)
+        base_ids = get_frontier_companies(_df, [])
+        scen_ids = get_frontier_companies(_df, list(excl_key))
+        return base_ids, scen_ids
+
+    _base_front_ids, _scen_front_ids = _get_frontiers(str(_dea_csv_path), _excl_key)
+
+    _new_ids     = _scen_front_ids - _base_front_ids
+    _dropped_ids = _base_front_ids - _scen_front_ids
+    _stable_ids  = _base_front_ids & _scen_front_ids
+
+    _fc1, _fc2, _fc3 = st.columns(3)
+
+    with _fc1:
+        st.markdown("**Stabile frontselskaper**")
+        for _rid in sorted(_stable_ids, key=lambda r: _id_to_comp4.get(r, str(r))):
+            st.markdown(f"- {_id_to_comp4.get(_rid, _rid)}")
+
+    with _fc2:
+        _excl_lbl = ", ".join(_excl_comps) if _excl_comps else "ingen"
+        st.markdown(f"**Faller ut** (fjernet: {_excl_lbl})")
+        if _dropped_ids:
+            for _rid in sorted(_dropped_ids, key=lambda r: _id_to_comp4.get(r, str(r))):
+                st.markdown(f"- :red[{_id_to_comp4.get(_rid, _rid)}]")
+        else:
+            st.markdown("_Ingen_")
+
+    with _fc3:
+        st.markdown("**Nye frontselskaper i scenariet**")
+        if _new_ids:
+            for _rid in sorted(_new_ids, key=lambda r: _id_to_comp4.get(r, str(r))):
+                st.markdown(f"- :green[{_id_to_comp4.get(_rid, _rid)}]")
+        else:
+            st.markdown("_Ingen endring_")
+
+    st.divider()
+
+    # ── Full results table ─────────────────────────────────────────────
+    with st.expander("Fulltabell – alle selskaper"):
+        _tbl_cols = [
+            "comp", "X_cb",
+            "eff_s1_baseline", "eff_s1_scenario",
+            "eff_s2_approx_base", "eff_s2_approx_scenario",
+            "gap_mnok_baseline", "gap_mnok_scenario",
+        ]
+        _tbl_df = (
+            _scenario_df[_tbl_cols]
+            .copy()
+            .sort_values("eff_s1_scenario", ascending=False)
+            .rename(columns={
+                "comp":                   "Selskap",
+                "X_cb":                   "Kostgrunnlag (kNOK)",
+                "eff_s1_baseline":        "Eff. s1 (nå)",
+                "eff_s1_scenario":        "Eff. s1 (scenario)",
+                "eff_s2_approx_base":     "Eff. s2 approx (nå)",
+                "eff_s2_approx_scenario": "Eff. s2 approx (scenario)",
+                "gap_mnok_baseline":      "Gap MNOK (nå)",
+                "gap_mnok_scenario":      "Gap MNOK (scenario)",
+            })
+        )
+        st.dataframe(
+            _tbl_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Eff. s1 (nå)":             st.column_config.NumberColumn(format="%.3f"),
+                "Eff. s1 (scenario)":       st.column_config.NumberColumn(format="%.3f"),
+                "Eff. s2 approx (nå)":      st.column_config.NumberColumn(format="%.3f"),
+                "Eff. s2 approx (scenario)": st.column_config.NumberColumn(format="%.3f"),
+                "Gap MNOK (nå)":            st.column_config.NumberColumn(format="%.1f"),
+                "Gap MNOK (scenario)":      st.column_config.NumberColumn(format="%.1f"),
+            },
+        )
+
+        _dl4_1, _dl4_2, _ = st.columns([1, 1, 5])
+        with _dl4_1:
+            st.download_button(
+                "CSV", key="dl_fs_csv",
+                data=_tbl_df.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                file_name="frontselskapsanalyse.csv",
+                mime="text/csv",
+            )
+        with _dl4_2:
+            _buf4 = io.BytesIO()
+            with pd.ExcelWriter(_buf4, engine="openpyxl") as _w4:
+                _tbl_df.to_excel(_w4, index=False, sheet_name="Frontselskapsanalyse")
+            st.download_button(
+                "Excel", key="dl_fs_xlsx",
+                data=_buf4.getvalue(),
+                file_name="frontselskapsanalyse.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )

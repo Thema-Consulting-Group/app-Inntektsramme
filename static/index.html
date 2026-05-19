@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="no" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inntektsramme</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind (Play CDN — swap for compiled CSS in production) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            brand: { 50:'#eff6ff', 100:'#dbeafe', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8' },
+          },
+        },
+      },
+    }
+  </script>
+
+  <!-- Plotly -->
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" defer></script>
+
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body class="h-full bg-slate-50 font-sans text-slate-800" x-data="dashboard()" x-init="init()">
+
+<!-- ═══════════════════════ LAYOUT ═══════════════════════ -->
+<div class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside class="flex flex-col w-60 shrink-0 bg-slate-900 text-slate-100 select-none">
+    <!-- Logo -->
+    <div class="flex items-center gap-3 px-5 py-5 border-b border-slate-700">
+      <div class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white font-bold text-sm">IR</div>
+      <span class="font-semibold text-sm tracking-wide">Inntektsramme</span>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <template x-for="item in navItems" :key="item.id">
+        <button
+          @click="tab = item.id"
+          :class="tab === item.id
+            ? 'bg-brand-600 text-white'
+            : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
+          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left"
+        >
+          <span x-html="item.icon" class="w-4 h-4 shrink-0 opacity-80"></span>
+          <span x-text="item.label"></span>
+          <!-- Loading spinner badge -->
+          <span x-show="item.id === tab && loading"
+                class="ml-auto w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+        </button>
+      </template>
+    </nav>
+
+    <!-- Run indicator -->
+    <div class="px-4 py-3 border-t border-slate-700">
+      <p class="text-xs text-slate-500 mb-1">Siste kjøring</p>
+      <p x-text="latestRun || 'Ingen'" class="text-xs text-slate-300 truncate"></p>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+    <!-- Top bar -->
+    <header class="shrink-0 flex items-center gap-4 px-6 py-3 bg-white border-b border-slate-200 shadow-sm">
+      <h1 class="text-base font-semibold text-slate-800" x-text="currentTabLabel"></h1>
+      <div class="ml-auto flex items-center gap-3">
+        <!-- Global error badge -->
+        <div x-show="globalError"
+             class="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg">
+          <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
+          <span x-text="globalError"></span>
+          <button @click="globalError=''" class="ml-1 opacity-60 hover:opacity-100">✕</button>
+        </div>
+        <!-- Toast -->
+        <div x-show="toast.msg" x-transition
+             :class="toast.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'"
+             class="text-xs border px-3 py-1.5 rounded-lg">
+          <span x-text="toast.msg"></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+
+      <!-- ══════════ TAB 1: RME MODELL ══════════ -->
+      <section x-show="tab === 'rme'" x-cloak>
+
+        <!-- Action row -->
+        <div class="flex flex-wrap items-center gap-3">
+          <button @click="runPipeline()"
+                  :disabled="pipelineRunning"
+                  class="btn-primary flex items-center gap-2">
+            <span x-show="!pipelineRunning">▶ Kjør RME Modell</span>
+            <span x-show="pipelineRunning" class="flex items-center gap-2">
+              <span class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+              Kjører …
+            </span>
+          </button>
+          <button @click="loadIrTable()"
+                  :disabled="loading"
+                  class="btn-secondary">
+            Oppdater inntektsramme
+          </button>
+        </div>
+
+        <!-- Pipeline log -->
+        <div x-show="pipelineLogs.length > 0"
+             class="card bg-slate-900 text-slate-200 font-mono text-xs p-4 max-h-48 overflow-y-auto">
+          <template x-for="(line, i) in pipelineLogs" :key="i">
+            <div x-text="line"></div>
+          </template>
+        </div>
+
+        <!-- Metrics -->
+        <div x-show="irMeta" class="grid grid-cols-3 gap-4">
+          <div class="metric-card">
+            <p class="metric-label">Antall selskaper</p>
+            <p class="metric-value" x-text="irMeta?.n_companies ?? '—'"></p>
+          </div>
+          <div class="metric-card">
+            <p class="metric-label">Sum kostnadsgrunnlag (1000 kr)</p>
+            <p class="metric-value" x-text="fmt(irMeta?.sum_kostnadsgrunnlag)"></p>
+          </div>
+          <div class="metric-card">
+            <p class="metric-label">Sum IR etter kalibrering (1000 kr)</p>
+            <p class="metric-value" x-text="fmt(irMeta?.sum_ir)"></p>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div x-show="irTable.length > 0" class="card overflow-hidden p-0">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <span class="text-sm font-semibold">Inntektsramme 2026 – alle selskaper</span>
+            <button @click="downloadCsv(irTable, 'ir_tabell')" class="btn-xs">↓ CSV</button>
+          </div>
+          <div class="overflow-x-auto max-h-[480px] overflow-y-auto">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <template x-for="col in irColumns" :key="col">
+                    <th x-text="col" @click="sortTable('irTable', col)" class="cursor-pointer select-none"></th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(row, ri) in irTable" :key="ri">
+                  <tr>
+                    <template x-for="col in irColumns" :key="col">
+                      <td x-text="fmtCell(row[col])"></td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div x-show="!irTable.length && !loading" class="empty-state">
+          <p class="text-slate-500 text-sm">Klikk <strong>Oppdater inntektsramme</strong> for å laste resultater.</p>
+        </div>
+
+      </section>
+
+
+      <!-- ══════════ TAB 2: PROGNOSEBYGGER ══════════ -->
+      <section x-show="tab === 'prognose'" x-cloak>
+
+        <div class="grid grid-cols-[260px_1fr] gap-6">
+
+          <!-- Controls panel -->
+          <div class="space-y-4">
+            <div class="card p-4 space-y-4">
+              <div>
+                <label class="label">Selskap</label>
+                <select x-model="prog.orgn" class="input" @change="prog.result = null">
+                  <option value="">— velg selskap —</option>
+                  <template x-for="c in progCompanies" :key="c.orgn">
+                    <option :value="c.orgn" x-text="c.name"></option>
+                  </template>
+                </select>
+              </div>
+
+              <div>
+                <label class="label">Effektivitetsvekt (ρ)</label>
+                <input type="number" x-model.number="prog.rho" min="0" max="1" step="0.05" class="input" />
+              </div>
+
+              <div>
+                <label class="label">Avskrivningssats (%)</label>
+                <input type="number" x-model.number="prog.avs" min="1" max="10" step="0.5" class="input" />
+              </div>
+
+              <details class="group">
+                <summary class="cursor-pointer text-sm font-medium text-slate-600 list-none flex items-center justify-between">
+                  Fusjon
+                  <span class="text-slate-400 group-open:rotate-180 transition-transform">▾</span>
+                </summary>
+                <div class="mt-3 space-y-2">
+                  <div>
+                    <label class="label">Fusjonsår</label>
+                    <input type="number" x-model.number="prog.mergeYr" placeholder="f.eks. 2027" class="input" />
+                  </div>
+                  <div>
+                    <label class="label">Synergi (%)</label>
+                    <input type="number" x-model.number="prog.synergyPct" step="0.5" class="input" />
+                  </div>
+                  <div>
+                    <label class="label">Engangsbeløp (1000 kr)</label>
+                    <input type="number" x-model.number="prog.oneOff" class="input" />
+                  </div>
+                </div>
+              </details>
+
+              <button @click="runPrognose()"
+                      :disabled="!prog.orgn || loading"
+                      class="btn-primary w-full">
+                Beregn prognose
+              </button>
+            </div>
+          </div>
+
+          <!-- Results -->
+          <div class="space-y-4">
+            <div x-show="prog.result" class="card p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                <span class="text-sm font-semibold" x-text="'Prognose – ' + (prog.compName || '')"></span>
+                <button @click="downloadCsv(prog.result, 'prognose')" class="btn-xs">↓ CSV</button>
+              </div>
+              <div id="prognose-chart" class="h-72"></div>
+              <div class="overflow-x-auto max-h-80">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Parameter</th>
+                      <th>Nettnivå</th>
+                      <template x-for="yr in prog.years" :key="yr">
+                        <th x-text="yr"></th>
+                      </template>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="(row, ri) in prog.result" :key="ri">
+                      <tr>
+                        <td x-text="row['Parameter'] ?? row['parameter'] ?? ''"></td>
+                        <td x-text="row['Nettnivå'] ?? row['nettnivaa'] ?? ''"></td>
+                        <template x-for="yr in prog.years" :key="yr">
+                          <td x-text="fmtCell(row[yr])"></td>
+                        </template>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div x-show="!prog.result && !loading" class="empty-state">
+              <p class="text-slate-500 text-sm">Velg selskap og klikk <strong>Beregn prognose</strong>.</p>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+
+      <!-- ══════════ TAB 3: KOSTNADER ══════════ -->
+      <section x-show="tab === 'kostnader'" x-cloak>
+
+        <div class="flex flex-wrap items-center gap-3 mb-4">
+          <select x-model="kost.orgn" class="input w-72" @change="kost.table = []">
+            <option value="">— alle selskaper —</option>
+            <template x-for="c in progCompanies" :key="c.orgn">
+              <option :value="c.orgn" x-text="c.name"></option>
+            </template>
+          </select>
+          <button @click="loadKostnader()" :disabled="loading" class="btn-primary">Last kostnader</button>
+          <button x-show="kost.table.length" @click="downloadCsv(kost.table, 'kostnader')" class="btn-secondary">↓ CSV</button>
+        </div>
+
+        <div x-show="kost.table.length > 0" class="card p-0 overflow-hidden">
+          <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <template x-for="col in kostColumns" :key="col">
+                    <th x-text="col"></th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(row, ri) in kost.table" :key="ri">
+                  <tr>
+                    <template x-for="col in kostColumns" :key="col">
+                      <td x-text="fmtCell(row[col])"></td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div x-show="!kost.table.length && !loading" class="empty-state">
+          <p class="text-slate-500 text-sm">Velg selskap og klikk <strong>Last kostnader</strong>.</p>
+        </div>
+
+      </section>
+
+
+      <!-- ══════════ TAB 4: FRONTSELSKAPSANALYSE ══════════ -->
+      <section x-show="tab === 'frontier'" x-cloak>
+
+        <!-- Controls -->
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div class="card p-4">
+            <label class="label">Fokusselskap</label>
+            <select x-model.number="dea.focusId" class="input" @change="dea.result = null">
+              <option value="">— velg selskap —</option>
+              <template x-for="c in deaCompanies" :key="c.id">
+                <option :value="c.id" x-text="c.comp"></option>
+              </template>
+            </select>
+          </div>
+          <div class="card p-4">
+            <label class="label">Fjern fra DEA-en (fusjon/utgang)</label>
+            <div class="relative">
+              <!-- Multi-select implemented as checkbox dropdown -->
+              <div class="input cursor-pointer flex items-center justify-between" @click="dea.showExclude = !dea.showExclude">
+                <span class="text-sm truncate" x-text="dea.excludeIds.length ? dea.excludeIds.length + ' selskap(er) valgt' : 'Ingen'"></span>
+                <span class="text-slate-400">▾</span>
+              </div>
+              <div x-show="dea.showExclude" @click.outside="dea.showExclude = false"
+                   class="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                <template x-for="c in deaCompanies" :key="c.id">
+                  <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer">
+                    <input type="checkbox" :value="c.id" x-model="dea.excludeIds" class="accent-brand-600" />
+                    <span class="text-sm" x-text="c.comp"></span>
+                  </label>
+                </template>
+              </div>
+            </div>
+            <p x-show="dea.excludeIds.length" class="text-xs text-slate-500 mt-1"
+               x-text="dea.excludeIds.length + ' fjernet fra DEA-en'"></p>
+          </div>
+        </div>
+
+        <button @click="runScenario()"
+                :disabled="!dea.focusId || loading"
+                class="btn-primary mb-4">
+          Kjør frontanalyse
+        </button>
+
+        <!-- Results -->
+        <div x-show="dea.result" class="space-y-4">
+
+          <!-- Metrics row -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4" x-show="dea.focusRow">
+            <div class="metric-card">
+              <p class="metric-label">Eff. trinn 1 (nåsituasjon)</p>
+              <p class="metric-value text-brand-700" x-text="pct(dea.focusRow?.eff_s1_baseline)"></p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Eff. trinn 1 (scenario)</p>
+              <p class="metric-value" :class="dea.focusRow?.eff_s1_scenario >= 0.9999 ? 'text-emerald-600' : 'text-brand-700'"
+                 x-text="pct(dea.focusRow?.eff_s1_scenario)"></p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Gap til front (nåsit.) MNOK</p>
+              <p class="metric-value text-amber-600" x-text="fmtMnok(dea.focusRow?.gap_mnok_baseline)"></p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Gap til front (scenario) MNOK</p>
+              <p class="metric-value text-amber-600" x-text="fmtMnok(dea.focusRow?.gap_mnok_scenario)"></p>
+            </div>
+          </div>
+
+          <!-- Charts row -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="card p-4">
+              <h3 class="text-sm font-semibold mb-3">
+                Referanseselskaper
+                <span x-show="dea.excludeIds.length" class="text-xs text-slate-400"> · Scenario (LP)</span>
+                <span x-show="!dea.excludeIds.length" class="text-xs text-slate-400"> · R-modellen</span>
+              </h3>
+              <div id="peer-chart" class="h-64"></div>
+            </div>
+            <div class="card p-4">
+              <div class="flex items-center justify-between mb-1">
+                <h3 class="text-sm font-semibold">Effektivitetsoversikt – alle selskaper</h3>
+                <label class="flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
+                  <input type="checkbox" x-model="dea.showStage2" class="accent-brand-600"
+                         @change="$nextTick(() => renderEffChart())" />
+                  Vis trinn 2 (geo-korrigert)
+                </label>
+              </div>
+              <p x-show="dea.excludeIds.length" class="text-xs text-slate-400 mb-2"
+                 x-text="dea.result.length + ' selskaper vist (' + dea.excludeIds.length + ' fjernet)'"></p>
+              <div id="eff-chart" style="height: 520px; overflow-y: auto;"></div>
+            </div>
+          </div>
+
+          <!-- 2D Outputs Scatter -->
+          <div class="card p-4">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-sm font-semibold">2D Output-analyse</h3>
+              <label class="flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
+                <input type="checkbox" x-model="dea.normalize" class="accent-brand-600"
+                       @change="$nextTick(() => renderScatterChart())" />
+                Normaliser per kostnad (MNOK)
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="label">X-akse (dimensjon 1)</label>
+                <select x-model="dea.dimX" class="input" @change="$nextTick(() => renderScatterChart())">
+                  <option value="ld_sub">Abonnenter (ld_sub)</option>
+                  <option value="ld_hv">HV-linjer, km (ld_hv)</option>
+                  <option value="ld_ss">Nettstasjoner (ld_ss)</option>
+                </select>
+              </div>
+              <div>
+                <label class="label">Y-akse (dimensjon 2)</label>
+                <select x-model="dea.dimY" class="input" @change="$nextTick(() => renderScatterChart())">
+                  <option value="ld_sub">Abonnenter (ld_sub)</option>
+                  <option value="ld_hv">HV-linjer, km (ld_hv)</option>
+                  <option value="ld_ss">Nettstasjoner (ld_ss)</option>
+                </select>
+              </div>
+            </div>
+            <div id="scatter-chart" class="h-96"></div>
+            <p class="text-xs text-slate-500 mt-3">
+              <span class="font-medium">Farge</span> = effektivitet trinn 1 (rød=lav → blå → grønn=høy) ·
+              <span class="font-medium">◆ (stor)</span> = fokusselskap ·
+              <span class="font-medium">◆ (liten, mørk kant)</span> = 3D-frontselskap ·
+              <span class="font-medium">●</span> = øvrige ·
+              stiplet linje = 2D konveks hull-front (alltid konveks utover — ingen "bukt innover").
+            </p>
+          </div>
+
+          <!-- Frontier composition -->
+          <div class="card p-4">
+            <h3 class="text-sm font-semibold mb-1">Frontkomposisjon</h3>
+            <p class="text-xs text-slate-400 mb-3">
+              <strong>Peers til fokusselskap</strong>: maks 3 (= antall outputs) — lambda &gt; 0 i DEA-løsning for valgt selskap.<br>
+              <strong>Alle frontselskaper</strong>: selskaper med lambda &gt; 0 for <em>minst ett</em> av de 71 selskapene — typisk 8–12 stk.
+            </p>
+
+            <!-- Focus company peers -->
+            <div class="mb-4 p-3 rounded-lg bg-brand-50 border border-brand-100">
+              <p class="text-xs font-semibold text-brand-700 uppercase tracking-wide mb-2"
+                 x-text="'Peers til ' + (deaCompanies.find(c => c.id === dea.focusId)?.comp || 'fokusselskap')"></p>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="p in dea.focusPeers" :key="p.comp">
+                  <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-brand-100 text-brand-800">
+                    <span x-text="p.comp"></span>
+                    <span class="text-brand-500" x-text="(p.share * 100).toFixed(0) + '%'"></span>
+                  </span>
+                </template>
+                <span x-show="!dea.focusPeers.length" class="text-xs text-slate-400 italic">
+                  Fokusselskap er på fronten (ingen peers)
+                </span>
+              </div>
+            </div>
+
+            <!-- Full frontier composition -->
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                  Stabile frontselskaper
+                  <span class="font-normal normal-case text-slate-400" x-text="'(' + dea.stableFront.length + ')'"></span>
+                </p>
+                <template x-for="c in dea.stableFront" :key="c.id">
+                  <div class="text-sm text-slate-700 py-0.5" x-text="c.name"></div>
+                </template>
+              </div>
+              <div>
+                <p class="text-xs font-semibold text-red-500 uppercase tracking-wide mb-2">Faller ut</p>
+                <template x-for="c in dea.droppedFront" :key="c.id">
+                  <div class="text-sm text-red-600 py-0.5" x-text="c.name"></div>
+                </template>
+                <div x-show="!dea.droppedFront.length" class="text-xs text-slate-400">Ingen</div>
+              </div>
+              <div>
+                <p class="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-2">Kommer inn</p>
+                <template x-for="c in dea.newFront" :key="c.id">
+                  <div class="text-sm text-emerald-700 py-0.5" x-text="c.name"></div>
+                </template>
+                <div x-show="!dea.newFront.length" class="text-xs text-slate-400">Ingen</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Full results table -->
+          <details class="card p-0 overflow-hidden">
+            <summary class="px-4 py-3 cursor-pointer text-sm font-semibold border-b border-slate-100 select-none">
+              Alle selskaper – full tabell
+            </summary>
+            <div class="overflow-x-auto max-h-96">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Selskap</th>
+                    <th>Eff S1 (nåsit.)</th>
+                    <th>Eff S1 (scenario)</th>
+                    <th>Eff S2 (nåsit.)</th>
+                    <th>Eff S2 (scenario)</th>
+                    <th>Gap MNOK (nåsit.)</th>
+                    <th>Gap MNOK (scenario)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(row, ri) in dea.result" :key="ri">
+                    <tr :class="row.id === dea.focusId ? 'bg-brand-50 font-semibold' : ''">
+                      <td x-text="row.comp || row.id"></td>
+                      <td x-text="pct(row.eff_s1_baseline)"></td>
+                      <td x-text="pct(row.eff_s1_scenario)"></td>
+                      <td x-text="pct(row.eff_s2_approx_base)"></td>
+                      <td x-text="pct(row.eff_s2_approx_scenario)"></td>
+                      <td x-text="fmtMnok(row.gap_mnok_baseline)"></td>
+                      <td x-text="fmtMnok(row.gap_mnok_scenario)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+
+        <div x-show="!dea.result && !loading" class="empty-state">
+          <p class="text-slate-500 text-sm">Velg fokusselskap og klikk <strong>Kjør frontanalyse</strong>.</p>
+        </div>
+
+      </section>
+
+      <!-- Fullscreen loader -->
+      <div x-show="loading && !pipelineRunning"
+           class="fixed inset-0 bg-white/60 flex items-center justify-center z-40 backdrop-blur-sm">
+        <div class="flex items-center gap-3 text-slate-600">
+          <div class="w-5 h-5 border-2 border-brand-600/30 border-t-brand-600 rounded-full animate-spin"></div>
+          <span class="text-sm font-medium">Beregner …</span>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
