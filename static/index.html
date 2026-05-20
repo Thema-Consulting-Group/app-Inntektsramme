@@ -67,8 +67,9 @@
 
     <!-- Run indicator -->
     <div class="px-4 py-3 border-t border-slate-700">
-      <p class="text-xs text-slate-500 mb-1">Siste kjøring</p>
-      <p x-text="latestRun || 'Ingen'" class="text-xs text-slate-300 truncate"></p>
+      <p class="text-xs text-slate-500 mb-1">Aktiv kjøring</p>
+      <p x-text="activeRunLabel" class="text-xs truncate"
+         :class="selectedRun ? 'text-amber-400' : 'text-slate-300'"></p>
     </div>
   </aside>
 
@@ -117,6 +118,27 @@
                   class="btn-secondary">
             Oppdater inntektsramme
           </button>
+        </div>
+
+        <!-- Run selector -->
+        <div class="card p-4">
+          <div class="flex flex-wrap items-end gap-4">
+            <div class="flex-1 min-w-[260px]">
+              <label class="label">Aktiv kjøring</label>
+              <select x-model="selectedRun" class="input" @change="loadIrTable(); loadDeaCompanies(); loadProgCompanies()">
+                <option value="">— Siste kjøring (automatisk) —</option>
+                <template x-for="r in availableRuns" :key="r.name">
+                  <option :value="r.name" :disabled="!r.complete" x-text="r.name + (r.complete ? '' : ' (ufullstendig)')"></option>
+                </template>
+              </select>
+            </div>
+            <div x-show="selectedRun" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              Bruker valgt kjøring — ikke siste
+            </div>
+            <button x-show="selectedRun" @click="selectedRun = ''; loadIrTable()" class="btn-secondary text-xs">
+              Tilbakestill til siste
+            </button>
+          </div>
         </div>
 
         <!-- Pipeline log -->
@@ -238,37 +260,70 @@
 
           <!-- Results -->
           <div class="space-y-4">
-            <div x-show="prog.result" class="card p-0 overflow-hidden">
-              <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                <span class="text-sm font-semibold" x-text="'Prognose – ' + (prog.compName || '')"></span>
-                <button @click="downloadCsv(prog.result, 'prognose')" class="btn-xs">↓ CSV</button>
-              </div>
-              <div id="prognose-chart" class="h-72"></div>
-              <div class="overflow-x-auto max-h-80">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Parameter</th>
-                      <th>Nettnivå</th>
-                      <template x-for="yr in prog.years" :key="yr">
-                        <th x-text="yr"></th>
-                      </template>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="(row, ri) in prog.result" :key="ri">
-                      <tr>
-                        <td x-text="row['Parameter'] ?? row['parameter'] ?? ''"></td>
-                        <td x-text="row['Nettnivå'] ?? row['nettnivaa'] ?? ''"></td>
-                        <template x-for="yr in prog.years" :key="yr">
-                          <td x-text="fmtCell(row[yr])"></td>
+            <template x-if="prog.result">
+              <div>
+
+                <!-- Summary metrics -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <template x-for="key in ['Inntektsramme','Kostnadsgrunnlag','Kostnadsnorm','Driftsresultat']" :key="key">
+                    <div class="metric-card">
+                      <p class="metric-label" x-text="key + ' ' + (prog.years[0] ?? '')"></p>
+                      <p class="metric-value text-brand-700"
+                         x-text="fmtKkr((prog.summary.find(r => r['Parameter'] === key) ?? {})[prog.years[0]])"></p>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- IR / KG / KN chart -->
+                <div class="card p-4 mb-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold" x-text="'Prognose – ' + (prog.compName || '')"></h3>
+                    <button @click="downloadCsv(prog.result, 'prognose')" class="btn-xs">↓ CSV</button>
+                  </div>
+                  <div id="prognose-chart" style="height:300px"></div>
+                </div>
+
+                <!-- Efficiency chart -->
+                <div class="card p-4 mb-4">
+                  <h3 class="text-sm font-semibold mb-2">Effektivitet og avkastning</h3>
+                  <div id="prognose-eff-chart" style="height:240px"></div>
+                </div>
+
+                <!-- Full grunnlagsdata table -->
+                <details class="card p-0 overflow-hidden">
+                  <summary class="px-4 py-3 cursor-pointer text-sm font-semibold border-b border-slate-100 select-none">
+                    Grunnlagsdata – full tabell
+                  </summary>
+                  <div class="overflow-x-auto max-h-96">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Parameter</th>
+                          <th>Nettnivå</th>
+                          <th>Enhet</th>
+                          <template x-for="yr in prog.allYears" :key="yr">
+                            <th x-text="yr"></th>
+                          </template>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="(row, ri) in prog.result" :key="ri">
+                          <tr>
+                            <td x-text="row['Parameter'] ?? ''"></td>
+                            <td x-text="row['Nettnivå'] ?? ''"></td>
+                            <td x-text="row['Enhet'] ?? ''"></td>
+                            <template x-for="yr in prog.allYears" :key="yr">
+                              <td x-text="fmtCell(row[yr])"></td>
+                            </template>
+                          </tr>
                         </template>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+
               </div>
-            </div>
+            </template>
 
             <div x-show="!prog.result && !loading" class="empty-state">
               <p class="text-slate-500 text-sm">Velg selskap og klikk <strong>Beregn prognose</strong>.</p>
@@ -280,16 +335,15 @@
 
 
       <!-- ══════════ TAB 3: KOSTNADER ══════════ -->
-      <section x-show="tab === 'kostnader'" x-cloak>
+      <section x-show="tab === 'kostnader'" x-cloak x-init="$watch('tab', v => { if (v === 'kostnader') loadKostnader() })">
 
         <div class="flex flex-wrap items-center gap-3 mb-4">
-          <select x-model="kost.orgn" class="input w-72" @change="kost.table = []">
+          <select x-model="kost.orgn" class="input w-72" @change="loadKostnader()">
             <option value="">— alle selskaper —</option>
             <template x-for="c in progCompanies" :key="c.orgn">
               <option :value="c.orgn" x-text="c.name"></option>
             </template>
           </select>
-          <button @click="loadKostnader()" :disabled="loading" class="btn-primary">Last kostnader</button>
           <button x-show="kost.table.length" @click="downloadCsv(kost.table, 'kostnader')" class="btn-secondary">↓ CSV</button>
         </div>
 
@@ -317,7 +371,7 @@
         </div>
 
         <div x-show="!kost.table.length && !loading" class="empty-state">
-          <p class="text-slate-500 text-sm">Velg selskap og klikk <strong>Last kostnader</strong>.</p>
+          <p class="text-slate-500 text-sm">Velg selskap for å filtrere, eller se alle selskaper.</p>
         </div>
 
       </section>
@@ -381,6 +435,22 @@
                  x-text="pct(dea.focusRow?.eff_s1_scenario)"></p>
             </div>
             <div class="metric-card">
+              <p class="metric-label">Eff. trinn 2 – geo (nåsit.)</p>
+              <p class="metric-value text-brand-700" x-text="pct(dea.focusRow?.eff_s2_approx_base)"></p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Eff. trinn 2 – geo (scenario)</p>
+              <p class="metric-value text-brand-700" x-text="pct(dea.focusRow?.eff_s2_approx_scenario)"></p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Eff. trinn 3 – kal. (nåsit.)</p>
+              <p class="metric-value text-violet-700" x-text="pct(dea.focusRow?.eff_s3_approx_base)"></p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Eff. trinn 3 – kal. (scenario)</p>
+              <p class="metric-value text-violet-700" x-text="pct(dea.focusRow?.eff_s3_approx_scenario)"></p>
+            </div>
+            <div class="metric-card">
               <p class="metric-label">Gap til front (nåsit.) MNOK</p>
               <p class="metric-value text-amber-600" x-text="fmtMnok(dea.focusRow?.gap_mnok_baseline)"></p>
             </div>
@@ -403,11 +473,18 @@
             <div class="card p-4">
               <div class="flex items-center justify-between mb-1">
                 <h3 class="text-sm font-semibold">Effektivitetsoversikt – alle selskaper</h3>
-                <label class="flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
-                  <input type="checkbox" x-model="dea.showStage2" class="accent-brand-600"
-                         @change="$nextTick(() => renderEffChart())" />
-                  Vis trinn 2 (geo-korrigert)
-                </label>
+                <div class="flex items-center gap-4">
+                  <label class="flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
+                    <input type="checkbox" x-model="dea.showStage2" class="accent-brand-600"
+                           @change="$nextTick(() => renderEffChart())" />
+                    Vis trinn 2 (geo-korrigert)
+                  </label>
+                  <label class="flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
+                    <input type="checkbox" x-model="dea.showStage3" class="accent-violet-600"
+                           @change="$nextTick(() => renderEffChart())" />
+                    Vis trinn 3 (kalibrert)
+                  </label>
+                </div>
               </div>
               <p x-show="dea.excludeIds.length" class="text-xs text-slate-400 mb-2"
                  x-text="dea.result.length + ' selskaper vist (' + dea.excludeIds.length + ' fjernet)'"></p>
@@ -520,6 +597,8 @@
                     <th>Eff S1 (scenario)</th>
                     <th>Eff S2 (nåsit.)</th>
                     <th>Eff S2 (scenario)</th>
+                    <th>Eff S3 (nåsit.)</th>
+                    <th>Eff S3 (scenario)</th>
                     <th>Gap MNOK (nåsit.)</th>
                     <th>Gap MNOK (scenario)</th>
                   </tr>
@@ -532,6 +611,8 @@
                       <td x-text="pct(row.eff_s1_scenario)"></td>
                       <td x-text="pct(row.eff_s2_approx_base)"></td>
                       <td x-text="pct(row.eff_s2_approx_scenario)"></td>
+                      <td x-text="pct(row.eff_s3_approx_base)"></td>
+                      <td x-text="pct(row.eff_s3_approx_scenario)"></td>
                       <td x-text="fmtMnok(row.gap_mnok_baseline)"></td>
                       <td x-text="fmtMnok(row.gap_mnok_scenario)"></td>
                     </tr>

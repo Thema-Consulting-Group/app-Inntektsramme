@@ -42,6 +42,8 @@ function dashboard() {
     globalError:  '',
     toast:        { msg: '', type: 'success' },
     latestRun:    '',
+    selectedRun:  '',   // '' = always use latest
+    availableRuns: [],  // [{name, complete}] populated from /api/runs
 
     /* ── Tab 1: RME ──────────────────────── */
     pipelineRunning: false,
@@ -53,7 +55,7 @@ function dashboard() {
     /* ── Tab 2: Prognose ─────────────────── */
     progCompanies: [],
     prog: {
-      orgn: '', result: null, years: [], compName: '',
+      orgn: '', result: null, summary: [], years: [], allYears: [], compName: '',
       rho: 0.7, avs: 4.0,
       mergeYr: null, synergyPct: 0, oneOff: 0,
     },
@@ -69,6 +71,7 @@ function dashboard() {
       excludeIds:  [],
       showExclude: false,
       showStage2:  false,
+      showStage3:  false,
       dimX:        'ld_sub',
       dimY:        'ld_hv',
       normalize:   true,
@@ -117,8 +120,24 @@ function dashboard() {
     async fetchLatestRun() {
       try {
         const data = await this.api('GET', '/api/runs');
-        this.latestRun = data.runs?.[0]?.name ?? '';
+        this.availableRuns = (data.runs ?? []);
+        this.latestRun = this.availableRuns[0]?.name ?? '';
       } catch (_) {}
+    },
+
+    // Returns '?run_name=Run_...' if a specific run is selected, else ''
+    _runQs() {
+      return this.selectedRun ? `?run_name=${encodeURIComponent(this.selectedRun)}` : '';
+    },
+
+    // Returns run_name value for POST bodies
+    _runName() {
+      return this.selectedRun || null;
+    },
+
+    // Active run label for UI (selected or latest)
+    get activeRunLabel() {
+      return this.selectedRun || this.latestRun || 'Ingen';
     },
 
     // ─── Tab 1 ───────────────────────────────
@@ -140,6 +159,7 @@ function dashboard() {
             if (msg.code === 0) {
               this.showToast('R-pipeline fullført!');
               await this.fetchLatestRun();
+              this.selectedRun = this.latestRun; // auto-select the new run
               await this.loadIrTable();
               await this.loadDeaCompanies();
               await this.loadProgCompanies();
@@ -163,7 +183,7 @@ function dashboard() {
       this.loading = true;
       this.globalError = '';
       try {
-        const data = await this.api('GET', '/api/ir-table');
+        const data = await this.api('GET', `/api/ir-table${this._runQs()}`);
         this.irMeta    = data.meta;
         this.irTable   = data.table ?? [];
         this.irColumns = this.irTable.length ? Object.keys(this.irTable[0]) : [];
@@ -189,7 +209,7 @@ function dashboard() {
             .sort((a, b) => a.name.localeCompare(b.name));
         } else {
           // Try loading ir table silently
-          const data = await this.api('GET', '/api/ir-table').catch(() => null);
+          const data = await this.api('GET', `/api/ir-table${this._runQs()}`).catch(() => null);
           if (data?.table) {
             const seen = new Set();
             this.progCompanies = data.table
@@ -214,10 +234,13 @@ function dashboard() {
           merge_yr: this.prog.mergeYr || null,
           synergy_pct: this.prog.synergyPct,
           one_off: this.prog.oneOff,
+          run_name: this._runName(),
         };
         const data = await this.api('POST', '/api/prognose', body);
         this.prog.result    = data.forecast ?? [];
+        this.prog.summary   = data.summary  ?? [];
         this.prog.years     = data.years ?? [];
+        this.prog.allYears  = data.all_years ?? data.years ?? [];
         this.prog.compName  = data.company_name ?? '';
         this.$nextTick(() => this.renderPrognoseChart());
       } catch (e) {
@@ -229,28 +252,61 @@ function dashboard() {
 
     renderPrognoseChart() {
       const el = document.getElementById('prognose-chart');
-      if (!el || !this.prog.result?.length) return;
+      if (!el || !this.prog.summary?.length) return;
 
-      // Find the "Inntektsramme" parameter rows
-      const irRows = this.prog.result.filter(r =>
-        (r['Parameter'] || '').toLowerCase().includes('inntektsramme')
+      const yrs = this.prog.years;
+      const palette = {
+        'Kostnadsgrunnlag': { color: SLATE,   dash: 'dot',    width: 1.5 },
+        'Kostnadsnorm':     { color: BRAND,   dash: 'dash',   width: 2   },
+        'Inntektsramme':    { color: EMERALD, dash: 'solid',  width: 2.5 },
+        'Driftsresultat':   { color: RED,     dash: 'solid',  width: 1.5 },
+      };
+
+      const kkkRows = this.prog.summary.filter(r =>
+        ['Kostnadsgrunnlag', 'Kostnadsnorm', 'Inntektsramme', 'Driftsresultat'].includes(r['Parameter'])
       );
 
-      const traces = irRows.map(row => ({
-        x: this.prog.years,
-        y: this.prog.years.map(yr => row[yr] ?? null),
-        mode: 'lines+markers',
-        name: `${row['Parameter']} (${row['Nettnivå'] ?? ''})`,
-        line: { width: 2 },
-      }));
+      const traces = kkkRows.map(row => {
+        const p = row['Parameter'];
+        const s = palette[p] || { color: BRAND, dash: 'solid', width: 2 };
+        return {
+          x: yrs,
+          y: yrs.map(yr => row[yr] ?? null),
+          mode: 'lines+markers',
+          name: p,
+          line: { color: s.color, dash: s.dash, width: s.width },
+          marker: { size: 5, color: s.color },
+          hovertemplate: '%{x}: %{y:,.0f} kkr<extra>' + p + '</extra>',
+        };
+      });
 
       if (!traces.length) return;
 
       Plotly.react(el, traces, {
         ...BASE_LAYOUT,
         yaxis: { title: '1000 NOK', gridcolor: '#f1f5f9' },
-        xaxis: { title: 'År', gridcolor: '#f1f5f9' },
-        height: 280,
+        xaxis: { title: 'År', dtick: 1, gridcolor: '#f1f5f9' },
+        height: 300,
+      }, PLOTLY_CONFIG);
+
+      // Render efficiency chart
+      const effEl = document.getElementById('prognose-eff-chart');
+      if (!effEl) return;
+      const effRows = this.prog.summary.filter(r =>
+        ['Effektivitet Dnett %', 'Effektivitet vektet %', 'Avkastning NVE %'].includes(r['Parameter'])
+      );
+      const effTraces = effRows.map(row => ({
+        x: yrs,
+        y: yrs.map(yr => row[yr] ?? null),
+        mode: 'lines+markers',
+        name: row['Parameter'],
+        hovertemplate: '%{x}: %{y:.2f} %<extra>' + row['Parameter'] + '</extra>',
+      }));
+      Plotly.react(effEl, effTraces, {
+        ...BASE_LAYOUT,
+        yaxis: { title: '%', gridcolor: '#f1f5f9' },
+        xaxis: { title: 'År', dtick: 1, gridcolor: '#f1f5f9' },
+        height: 240,
       }, PLOTLY_CONFIG);
     },
 
@@ -260,9 +316,8 @@ function dashboard() {
       this.loading = true;
       this.globalError = '';
       try {
-        const path = this.kost.orgn
-          ? `/api/kostnader?orgn=${this.kost.orgn}`
-          : '/api/kostnader';
+        let path = `/api/kostnader${this._runQs()}`;
+        if (this.kost.orgn) path += (this._runQs() ? '&' : '?') + `orgn=${this.kost.orgn}`;
         const data = await this.api('GET', path);
         this.kost.table  = data.table ?? [];
         this.kostColumns = this.kost.table.length ? Object.keys(this.kost.table[0]) : [];
@@ -277,7 +332,7 @@ function dashboard() {
 
     async loadDeaCompanies() {
       try {
-        const data = await this.api('GET', '/api/ld-dea');
+        const data = await this.api('GET', `/api/ld-dea${this._runQs()}`);
         this.deaCompanies = (data.companies ?? []).sort((a, b) =>
           (a.comp || '').localeCompare(b.comp || '')
         );
@@ -298,6 +353,7 @@ function dashboard() {
         const data = await this.api('POST', '/api/frontier-scenario', {
           focus_id: Number(this.dea.focusId),
           exclude_ids: this.dea.excludeIds.map(Number),
+          run_name: this._runName(),
         });
 
         this.dea.result = data.scenario ?? [];
@@ -438,6 +494,29 @@ function dashboard() {
             y: labels,
             marker: { color: '#fb923c', symbol: 'circle', size: 7, line: { width: 1, color: '#fff' } },
             hovertemplate: '%{y}: %{x:.3f}<extra>Trinn 2 scenario</extra>',
+          });
+        }
+      }
+
+      const s3 = this.dea.showStage3;
+      const s3Color = isFocus.map(f => f ? '#7c3aed' : '#a78bfa');  // violet
+      if (s3) {
+        traces.push({
+          type: 'scatter', mode: 'markers', orientation: 'h',
+          name: 'Trinn 3 kalibrert (nåsit.)',
+          x: sorted.map(r => r.eff_s3_approx_base),
+          y: labels,
+          marker: { color: s3Color, symbol: 'star', size: 8, line: { width: 1, color: '#fff' } },
+          hovertemplate: '%{y}: %{x:.3f}<extra>Trinn 3 nåsit.</extra>',
+        });
+        if (hasExcl) {
+          traces.push({
+            type: 'scatter', mode: 'markers', orientation: 'h',
+            name: 'Trinn 3 kalibrert (scenario)',
+            x: sorted.map(r => r.eff_s3_approx_scenario),
+            y: labels,
+            marker: { color: '#c4b5fd', symbol: 'star-open', size: 8, line: { width: 1.5, color: '#7c3aed' } },
+            hovertemplate: '%{y}: %{x:.3f}<extra>Trinn 3 scenario</extra>',
           });
         }
       }
@@ -629,6 +708,12 @@ function dashboard() {
     fmtMnok(v) {
       if (v == null) return '—';
       return v.toFixed(2) + ' MNOK';
+    },
+
+    fmtKkr(v) {
+      if (v == null || v === undefined) return '—';
+      const mnok = v / 1000;
+      return mnok.toLocaleString('nb-NO', { maximumFractionDigits: 1 }) + ' MNOK';
     },
 
     downloadCsv(rows, name) {

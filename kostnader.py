@@ -147,7 +147,12 @@ def grunnlagsdata_to_rme(
         Columns: NVE_ID, Company, Variable, Nettnivaa, Unit, <year>, ...
         One row per (company, variable, nettnivaa) combination.
     """
-    df = pd.read_csv(csv_path).fillna(0)
+    _ext = os.path.splitext(csv_path)[1].lower()
+    if _ext in (".xlsx", ".xls"):
+        import openpyxl  # noqa: F401 – ensure import error is surfaced early
+        df = pd.read_excel(csv_path).fillna(0)
+    else:
+        df = pd.read_csv(csv_path).fillna(0)
 
     # Resolve NVE_ID from orgn via Data_Resultater_LD.xlsx in the same folder
     id_map = _load_nve_id_map(csv_path)

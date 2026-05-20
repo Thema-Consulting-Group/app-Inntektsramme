@@ -22,9 +22,10 @@ pd.set_option("display.float_format", "{:.2f}".format)
 class Config:
     """Load YAML and expose derived parameters."""
 
-    def __init__(self, path: str = "config.yaml"):
+    def __init__(self, path: str = "config.yaml", run_name: str | None = None):
         self._raw: dict = Util.load_config(path)
         self.base_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._run_name: str | None = run_name  # if set, use this specific Run_* dir
 
         fp = self.f  # shorthand
         # Pre-compute reference rate once
@@ -77,29 +78,37 @@ class Config:
                     "Results/ directory not found. "
                     "Run the R pipeline (Step 1) to generate result files."
                 )
-            run_dirs = sorted(
-                d for d in os.listdir(results_dir)
-                if d.startswith("Run_") and os.path.isdir(os.path.join(results_dir, d))
-            )
-            if not run_dirs:
-                raise FileNotFoundError(
-                    "No Run_* directories found in Results/. "
-                    "Run the R pipeline (Step 1) to generate result files."
+            if self._run_name:
+                # Use the caller-specified run directory.
+                latest = self._run_name
+                if not os.path.isdir(os.path.join(results_dir, latest)):
+                    raise FileNotFoundError(
+                        f"Run directory '{latest}' not found in Results/."
+                    )
+            else:
+                run_dirs = sorted(
+                    d for d in os.listdir(results_dir)
+                    if d.startswith("Run_") and os.path.isdir(os.path.join(results_dir, d))
                 )
-            # Find the newest dir that has all three required files
-            required = ["Til inntektsrammeark.xlsx", "Data_Resultater_LD.xlsx", "Data_Resultater_RD.xlsx"]
-            latest = None
-            for d in reversed(run_dirs):
-                dpath = os.path.join(results_dir, d)
-                if all(os.path.exists(os.path.join(dpath, f)) for f in required):
-                    latest = d
-                    break
-            if latest is None:
-                raise FileNotFoundError(
-                    f"No Run_* directory contains all required files "
-                    f"({', '.join(required)}). "
-                    "Run the R pipeline (Step 1) to generate a complete result set."
-                )
+                if not run_dirs:
+                    raise FileNotFoundError(
+                        "No Run_* directories found in Results/. "
+                        "Run the R pipeline (Step 1) to generate result files."
+                    )
+                # Find the newest dir that has all three required files
+                required = ["Til inntektsrammeark.xlsx", "Data_Resultater_LD.xlsx", "Data_Resultater_RD.xlsx"]
+                latest = None
+                for d in reversed(run_dirs):
+                    dpath = os.path.join(results_dir, d)
+                    if all(os.path.exists(os.path.join(dpath, f)) for f in required):
+                        latest = d
+                        break
+                if latest is None:
+                    raise FileNotFoundError(
+                        f"No Run_* directory contains all required files "
+                        f"({', '.join(required)}). "
+                        "Run the R pipeline (Step 1) to generate a complete result set."
+                    )
             irir = os.path.join(results_dir, latest, "Til inntektsrammeark.xlsx")
             ld = os.path.join(results_dir, latest, "Data_Resultater_LD.xlsx")
             rd = os.path.join(results_dir, latest, "Data_Resultater_RD.xlsx")
@@ -343,8 +352,8 @@ class RevenueCapCalculator:
     calibration, and produces the final ETL DataFrame.
     """
 
-    def __init__(self, config_path: str = "config.yaml"):
-        self.cfg = Config(config_path)
+    def __init__(self, config_path: str = "config.yaml", run_name: str | None = None):
+        self.cfg = Config(config_path, run_name=run_name)
         self.data = DataLoader(self.cfg)
         self.costs = CostCalculator(self.data, self.cfg)
         self._build_dea_norms()

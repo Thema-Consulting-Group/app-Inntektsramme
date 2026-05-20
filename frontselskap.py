@@ -149,7 +149,7 @@ def run_ld_scenario(
     Parameters
     ----------
     dea_df      : output of load_ld_dea_inputs()
-    res_ld      : Data_Resultater_LD sheet — columns: id, comp, ld_eff.s1.cb, ld_eff.s2.cb
+    res_ld      : Data_Resultater_LD sheet — columns: id, comp, ld_eff.s1.cb, ld_eff.s2.cb, ld_eff.s3.cb
     exclude_ids : IDs to remove from BOTH reference and evaluation sets
 
     Returns
@@ -158,6 +158,7 @@ def run_ld_scenario(
       id, comp, X_cb,
       eff_s1_baseline, eff_s1_scenario,
       eff_s2_approx_base, eff_s2_approx_scenario,
+      eff_s3_approx_base, eff_s3_approx_scenario,
       gap_mnok_baseline, gap_mnok_scenario,
       peer_{id} columns (lambda weights for scenario reference companies)
     """
@@ -166,16 +167,20 @@ def run_ld_scenario(
     # --- Geo-correction lookup ---
     r_idx      = res_ld.set_index("id")
     geo_offset = {}
+    cal_offset = {}
     id_to_comp = {}
     for rid in dea_df["id"]:
         if rid in r_idx.index:
-            geo_offset[rid] = (
-                float(r_idx.loc[rid, "ld_eff.s2.cb"])
-                - float(r_idx.loc[rid, "ld_eff.s1.cb"])
+            s1 = float(r_idx.loc[rid, "ld_eff.s1.cb"])
+            geo_offset[rid] = float(r_idx.loc[rid, "ld_eff.s2.cb"]) - s1
+            cal_offset[rid] = (
+                float(r_idx.loc[rid, "ld_eff.s3.cb"]) - s1
+                if "ld_eff.s3.cb" in r_idx.columns else geo_offset[rid]
             )
             id_to_comp[rid] = str(r_idx.loc[rid, "comp"])
         else:
             geo_offset[rid] = 0.0
+            cal_offset[rid] = 0.0
             id_to_comp[rid] = str(rid)
 
     # --- Baseline: full reference + full evaluation ---
@@ -204,8 +209,11 @@ def run_ld_scenario(
     out["eff_s1_baseline"]        = out["id"].map(base_eff_map)
     out["eff_s1_scenario"]        = eff_scen
     out["geo_offset"]             = out["id"].map(geo_offset).fillna(0.0)
+    out["cal_offset"]             = out["id"].map(cal_offset).fillna(0.0)
     out["eff_s2_approx_base"]     = out["eff_s1_baseline"] + out["geo_offset"]
     out["eff_s2_approx_scenario"] = out["eff_s1_scenario"] + out["geo_offset"]
+    out["eff_s3_approx_base"]     = out["eff_s1_baseline"] + out["cal_offset"]
+    out["eff_s3_approx_scenario"] = out["eff_s1_scenario"] + out["cal_offset"]
     out["gap_mnok_baseline"]      = (
         (1 - out["eff_s1_baseline"]) * out["X_cb"] / 1000
     ).clip(lower=0)

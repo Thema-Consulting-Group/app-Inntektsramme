@@ -18,8 +18,16 @@ import os
 import pandas as pd
 import numpy as np
 
-FORECAST_YEARS = list(range(2026, 2036))
-_BASE_YEAR = 2026
+FORECAST_YEARS = list(range(2025, 2036))  # <-- start 2025
+_BASE_YEAR = 2026  # revenue cap model output year (y.rc)
+
+
+def _read_grunnlag(path: str) -> pd.DataFrame:
+    """Read grunnlagsdata from CSV or Excel (.xlsx/.xls)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".xlsx", ".xls"):
+        return pd.read_excel(path).fillna(0)
+    return pd.read_csv(path).fillna(0)
 
 # ---------------------------------------------------------------------------
 # Default assumptions from NVE's online tool (April 2026)
@@ -89,7 +97,7 @@ def build_investeringer_from_model(
     kpi_series: dict = f.get("kpi", DEFAULT_FORUTSETNINGER["kpi"])
 
     try:
-        df = pd.read_csv(grunnlagsdata_csv).fillna(0)
+        df = _read_grunnlag(grunnlagsdata_csv)
     except Exception:
         return pd.DataFrame()
 
@@ -360,6 +368,8 @@ class PrognoseCalculator:
         self.rd_pens_eq0 = 0.0
         self.rd_impl0 = 0.0
         self.rd_utred0 = 0.0
+        self.ld_391_avg = 0.0
+        self.rd_391_avg = 0.0
 
         # Infrastructure defaults
         self.ld_hv0 = 0.0
@@ -372,6 +382,8 @@ class PrognoseCalculator:
 
         # Historical investment defaults (populated when grunnlagsdata is available)
         self._has_investment_history = False
+        self._comp_hist_df = None
+        self._hist_years: list[int] = []
         self.avg_inv_sf_ld = 0.0
         self.avg_inv_gf_ld = 0.0
         self.avg_inv_sf_rd = 0.0
@@ -382,7 +394,7 @@ class PrognoseCalculator:
             return
 
         try:
-            df = pd.read_csv(csv_path).fillna(0)
+            df = _read_grunnlag(csv_path)
         except Exception:
             return
 
@@ -394,6 +406,10 @@ class PrognoseCalculator:
         comp_df = df[df["orgn"] == orgn]
         if comp_df.empty:
             return
+
+        # Store for historical grunnlagsdata columns
+        self._comp_hist_df = comp_df
+        self._hist_years = sorted(int(y) for y in comp_df["y"].unique())
 
         # Use the latest year (DEA base year)
         base_yr = int(comp_df["y"].max())
@@ -466,6 +482,11 @@ class PrognoseCalculator:
             self.avg_inv_gf_ld = float(np.mean(_inv_gf_ld[-5:]))
             self.avg_inv_sf_rd = float(np.mean(_inv_sf_rd[-5:]))
             self.avg_inv_gf_rd = float(np.mean(_inv_gf_rd[-5:]))
+
+        # Andre driftsinntekter: 5-year average of ld_391/rd_391
+        _391_yrs = all_years[-5:]
+        self.ld_391_avg = float(np.mean([_g2(comp_df[comp_df["y"] == _yr].iloc[0], "ld_391") for _yr in _391_yrs]))
+        self.rd_391_avg = float(np.mean([_g2(comp_df[comp_df["y"] == _yr].iloc[0], "rd_391") for _yr in _391_yrs]))
 
     # ------------------------------------------------------------------
     # Merger synergy
@@ -540,11 +561,49 @@ class PrognoseCalculator:
 
         kp_base = self._get(self.f["kraftpris"], _BASE_YEAR, self.kraftpris_base)
 
+        # Andre driftsinntekter: KPI-bridge from hist base year to _BASE_YEAR
+        ld_391 = self.ld_391_avg
+        rd_391 = self.rd_391_avg
+        for _yr in range(self.last_hist_year + 1, _BASE_YEAR + 1):
+            _kpi_br = self._get(self.f["kpi"], _yr, 2.0) / 100
+            ld_391 *= 1 + _kpi_br
+            rd_391 *= 1 + _kpi_br
+
+        # 2025 back-projection: deflation factors from _BASE_YEAR (2026) growth assumptions
+        _bp_dv_gr   = self._get(self.dv_v["dv_ekskl_lonn_pct"],     _BASE_YEAR, 2.5) / 100
+        _bp_lonn_gr = self._get(self.dv_v["lonn_ekskl_pensjon_pct"], _BASE_YEAR, 2.5) / 100
+        _bp_kpi     = self._get(self.f["kpi"],                        _BASE_YEAR, 2.0) / 100
+
         for i, year in enumerate(FORECAST_YEARS):
             nve_rente = self._get(self.f["nve_rente"], year, 7.0) / 100
             kraftpris = self._get(self.f["kraftpris"], year, 700)
 
-            if i > 0:
+            # Back-project 2025 by deflating from 2026 base; restore tracking vars after row
+            _bp_saved = None
+            if year < _BASE_YEAR:
+                dv_gr   = _bp_dv_gr
+                lonn_gr = _bp_lonn_gr
+                kpi     = _bp_kpi
+                _bp_saved = (
+                    ld_dv_mat, ld_dv_lab, rd_dv_mat, rd_dv_lab,
+                    ld_bfv, rd_bfv, ld_kile, rd_kile,
+                    _ld_bfv_sf, _ld_bfv_gf, _rd_bfv_sf, _rd_bfv_gf,
+                    ld_pens, ld_pens_eq, ld_impl, ld_sal, ld_sal_cap,
+                    rd_pens, rd_pens_eq, rd_impl, rd_sal, rd_sal_cap, rd_utred,
+                    ld_391, rd_391,
+                )
+                ld_dv_mat  /= (1 + dv_gr);   ld_dv_lab  /= (1 + lonn_gr)
+                rd_dv_mat  /= (1 + dv_gr);   rd_dv_lab  /= (1 + lonn_gr)
+                ld_bfv     /= (1 + kpi);      rd_bfv     /= (1 + kpi)
+                ld_kile    /= (1 + kpi);      rd_kile    /= (1 + kpi)
+                _ld_bfv_sf /= (1 + kpi);      _ld_bfv_gf /= (1 + kpi)
+                _rd_bfv_sf /= (1 + kpi);      _rd_bfv_gf /= (1 + kpi)
+                ld_pens    /= (1 + dv_gr);    ld_pens_eq /= (1 + dv_gr);   ld_impl    /= (1 + dv_gr)
+                ld_sal     /= (1 + lonn_gr);  ld_sal_cap /= (1 + lonn_gr)
+                rd_pens    /= (1 + dv_gr);    rd_pens_eq /= (1 + dv_gr);   rd_impl    /= (1 + dv_gr)
+                rd_sal     /= (1 + lonn_gr);  rd_sal_cap /= (1 + lonn_gr); rd_utred   /= (1 + dv_gr)
+                ld_391     /= (1 + kpi);      rd_391     /= (1 + kpi)
+            elif year > _BASE_YEAR:
                 dv_gr = self._get(self.dv_v["dv_ekskl_lonn_pct"], year, 2.5) / 100
                 lonn_gr = self._get(self.dv_v["lonn_ekskl_pensjon_pct"], year, 2.5) / 100
                 kpi = self._get(self.f["kpi"], year, 2.0) / 100
@@ -566,6 +625,8 @@ class PrognoseCalculator:
                 rd_sal *= 1 + lonn_gr
                 rd_sal_cap *= 1 + lonn_gr
                 rd_utred *= 1 + dv_gr
+                ld_391 *= 1 + kpi
+                rd_391 *= 1 + kpi
 
                 # BFV: edited investments (absolute NOK) → historical avg (KPI-grown) → fallback % of BFV
                 _inv_kpi_cum *= (1 + kpi)
@@ -643,7 +704,7 @@ class PrognoseCalculator:
             k_rd_t = k_rd_excl + rd_nettap_t
 
             # Base year (2026): use the actual calibrated inntektsramme from the model
-            if i == 0:
+            if year == _BASE_YEAR:
                 ir_t = self.total_ir
             else:
                 ir_t = (1 - self.rho) * total_kg_t + self.rho * (k_ld_t + k_rd_t)
@@ -700,7 +761,7 @@ class PrognoseCalculator:
                 "LD Pensjonskost. periodisert": round(ld_pens * (1 - syn)),
                 "LD Pensjonkost. ført mot egenkapital: impl": round(ld_impl * (1 - syn)),
                 "LD Pensjonkost. ført mot egenkapital: estimatavvik": round(ld_pens_eq * (1 - syn)),
-                "LD Andre driftsinntekter": 0,
+                "LD Andre driftsinntekter": round(ld_391),
                 "LD BFV sf": round(ld_bfv_sf),
                 "LD BFV gf": round(ld_bfv_gf),
                 "LD AVS sf": round(ld_avs_sf, 1),
@@ -714,7 +775,7 @@ class PrognoseCalculator:
                 "RD Pensjonskost. periodisert": round(rd_pens * (1 - syn)),
                 "RD Pensjonkost. ført mot egenkapital: impl": round(rd_impl * (1 - syn)),
                 "RD Pensjonkost. ført mot egenkapital: estimatavvik": round(rd_pens_eq * (1 - syn)),
-                "RD Andre driftsinntekter": 0,
+                "RD Andre driftsinntekter": round(rd_391),
                 "RD Utredningskostnader": round(rd_utred * (1 - syn)),
                 "RD BFV sf": round(rd_bfv_sf),
                 "RD BFV gf": round(rd_bfv_gf),
@@ -726,6 +787,15 @@ class PrognoseCalculator:
                 "RD Vekt stasjonsvariabel": round(self.rd_wv_ss0, 1),
             }
             rows.append(row_data)
+
+            # Restore tracking vars after back-projection (2025)
+            if _bp_saved is not None:
+                (ld_dv_mat, ld_dv_lab, rd_dv_mat, rd_dv_lab,
+                 ld_bfv, rd_bfv, ld_kile, rd_kile,
+                 _ld_bfv_sf, _ld_bfv_gf, _rd_bfv_sf, _rd_bfv_gf,
+                 ld_pens, ld_pens_eq, ld_impl, ld_sal, ld_sal_cap,
+                 rd_pens, rd_pens_eq, rd_impl, rd_sal, rd_sal_cap, rd_utred,
+                 ld_391, rd_391) = _bp_saved
 
         return pd.DataFrame(rows)
 
@@ -778,10 +848,62 @@ class PrognoseCalculator:
             ("Vekt jordkabler",                          "RD Vekt jordkabler",                         "Regional",     ""),
         ]
 
+        # Mapping from (display_param, nettnivå) → raw grunnlagsdata CSV column
+        _HIST: dict[tuple, str] = {
+            ("Andre driftsinntekter",                                   "Distribusjon"): "ld_391",
+            ("D&V-kost. ekskl. lønn",                                  "Distribusjon"): "ld_OPEXxS",
+            ("Bokførte verdier kundefinansiert",                        "Distribusjon"): "ld_bv.gf",
+            ("Bokførte verdier egenfinansiert",                         "Distribusjon"): "ld_bv.sf",
+            ("KILE",                                                    "Distribusjon"): "ld_cens",
+            ("Avskrivninger kundefinansiert",                           "Distribusjon"): "ld_dep.gf",
+            ("Avskrivninger egenfinansiert",                            "Distribusjon"): "ld_dep.sf",
+            ("Høyspentnett",                                            "Distribusjon"): "ld_hv",
+            ("Pensjonkost. ført mot egenkapital: impl",                 "Distribusjon"): "ld_impl",
+            ("Nettap",                                                  "Distribusjon"): "ld_nl",
+            ("Pensjonskost. periodisert",                               "Distribusjon"): "ld_pens",
+            ("Pensjonkost. ført mot egenkapital: estimatavvik",         "Distribusjon"): "ld_pens.eq",
+            ("Lønnskost. ekskl. pensjon",                               "Distribusjon"): "ld_sal",
+            ("Aktiverte lønnskost.",                                    "Distribusjon"): "ld_sal.cap",
+            ("Nettstasjoner",                                           "Distribusjon"): "ld_ss",
+            ("Nettkunder",                                              "Distribusjon"): "ld_sub",
+            ("Andre driftsinntekter",                                   "Regional"):     "rd_391",
+            ("D&V-kost. ekskl. lønn",                                  "Regional"):     "rd_OPEXxS",
+            ("Bokførte verdier kundefinansiert",                        "Regional"):     "rd_bv.gf",
+            ("Bokførte verdier egenfinansiert",                         "Regional"):     "rd_bv.sf",
+            ("KILE",                                                    "Regional"):     "rd_cens",
+            ("Utredningskostnader",                                     "Regional"):     "rd_coord",
+            ("Avskrivninger kundefinansiert",                           "Regional"):     "rd_dep.gf",
+            ("Avskrivninger egenfinansiert",                            "Regional"):     "rd_dep.sf",
+            ("Pensjonkost. ført mot egenkapital: impl",                 "Regional"):     "rd_impl",
+            ("Nettap",                                                  "Regional"):     "rd_nl",
+            ("Pensjonskost. periodisert",                               "Regional"):     "rd_pens",
+            ("Pensjonkost. ført mot egenkapital: estimatavvik",         "Regional"):     "rd_pens.eq",
+            ("Lønnskost. ekskl. pensjon",                               "Regional"):     "rd_sal",
+            ("Aktiverte lønnskost.",                                    "Regional"):     "rd_sal.cap",
+            ("Vekt luftlinjer",                                         "Regional"):     "rd_wv.ol",
+            ("Vekt sjøkabler",                                          "Regional"):     "rd_wv.sc",
+            ("Vekt stasjonsvariabel",                                   "Regional"):     "rd_wv.ss",
+            ("Vekt jordkabler",                                         "Regional"):     "rd_wv.uc",
+        }
+
+        # Build year → Series lookup for historical rows
+        _hist_lookup: dict[int, pd.Series] = {}
+        if hasattr(self, "_comp_hist_df") and self._comp_hist_df is not None:
+            for _yr in self._hist_years:
+                _yr_rows = self._comp_hist_df[self._comp_hist_df["y"] == _yr]
+                if not _yr_rows.empty:
+                    _hist_lookup[_yr] = _yr_rows.iloc[0]
+
         rows: list[dict] = []
         for param, col, net, unit in mapping:
             row: dict = {"Selskap": sel, "Parameter": param,
                          "Nettnivå": net, "Enhet": unit}
+            # Historical years from raw CSV
+            csv_col = _HIST.get((param, net))
+            for _yr, _yr_row in _hist_lookup.items():
+                if csv_col and csv_col in _yr_row.index:
+                    row[_yr] = round(float(_yr_row[csv_col] or 0))
+            # Forecast years
             for _, r in fc.iterrows():
                 row[int(r["År"])] = r.get(col, 0)
             rows.append(row)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -54,17 +55,30 @@ def _df_to_records(df: pd.DataFrame) -> list[dict]:
     return _clean(df.to_dict(orient="records"))
 
 
-def _latest_run_paths() -> tuple[Path, Path, Path] | None:
-    """Return (irir_path, ld_path, rd_path) from the latest complete Run_* dir."""
+def _latest_run_paths(run_name: str | None = None) -> tuple[Path, Path, Path] | None:
+    """Return (irir_path, ld_path, rd_path) from a specific or the latest complete Run_* dir."""
     results_dir = ROOT / "Results"
     if not results_dir.is_dir():
         return None
+
+    if run_name:
+        # Validate: only allow Run_YYYY-MM-DD_HH-MM-SS style names (prevents path traversal)
+        if not re.match(r'^Run_[\d\-_]+$', run_name):
+            return None
+        d = results_dir / run_name
+        if not d.is_dir():
+            return None
+        irir = next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
+        ld   = next(d.glob("Data_Resultater_LD*"), None)
+        rd   = next(d.glob("Data_Resultater_RD*"), None)
+        return (irir, ld, rd) if (irir and ld and rd) else None
+
     run_dirs = sorted(
         [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("Run_")],
         reverse=True,
     )
     for d in run_dirs:
-        irir = next(d.glob("*grunnlagsdata*.csv"), None)
+        irir = next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
         ld   = next(d.glob("Data_Resultater_LD*"), None)
         rd   = next(d.glob("Data_Resultater_RD*"), None)
         if irir and ld and rd:
@@ -83,6 +97,7 @@ class ConfigUpdate(BaseModel):
 class ScenarioRequest(BaseModel):
     exclude_ids: list[int] = []
     focus_id: int
+    run_name: str | None = None
 
 
 class PrognoseRequest(BaseModel):
@@ -97,6 +112,7 @@ class PrognoseRequest(BaseModel):
     merge_yr: int | None = None
     synergy_pct: float = 0.0
     one_off: float = 0.0
+    run_name: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +129,12 @@ def get_runs():
         if not (d.is_dir() and d.name.startswith("Run_")):
             continue
         files = [{"name": f.name, "size": f.stat().st_size} for f in sorted(d.iterdir()) if f.is_file()]
-        runs.append({"name": d.name, "files": files})
+        complete = bool(
+            next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
+            and next(d.glob("Data_Resultater_LD*"), None)
+            and next(d.glob("Data_Resultater_RD*"), None)
+        )
+        runs.append({"name": d.name, "files": files, "complete": complete})
     return {"runs": runs}
 
 
@@ -145,10 +166,10 @@ def update_config(body: ConfigUpdate):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/ir-table")
-def get_ir_table():
+def get_ir_table(run_name: str | None = Query(default=None)):
     try:
         from inntektsramme import RevenueCapCalculator  # noqa: PLC0415
-        rc = RevenueCapCalculator()
+        rc = RevenueCapCalculator(run_name=run_name)
         result_df = rc.build_etl_dataframe()
         ir_df = rc.build_ir_dataframe()
     except Exception as e:
@@ -221,8 +242,8 @@ async def run_pipeline():
 # ---------------------------------------------------------------------------
 
 @app.get("/api/companies")
-def get_companies():
-    paths = _latest_run_paths()
+def get_companies(run_name: str | None = Query(default=None)):
+    paths = _latest_run_paths(run_name)
     if not paths:
         raise HTTPException(404, "Ingen resultater funnet. Kjør RME Modell først.")
     _, ld_path, _ = paths
@@ -256,7 +277,7 @@ def run_prognose(body: PrognoseRequest):
         from inntektsramme import RevenueCapCalculator  # noqa: PLC0415
         from prognose import PrognoseCalculator, FORECAST_YEARS  # noqa: PLC0415
 
-        rc = RevenueCapCalculator()
+        rc = RevenueCapCalculator(run_name=body.run_name)
         etl_df = rc.build_etl_dataframe()
         ir_df  = rc.build_ir_dataframe()
 
@@ -265,7 +286,7 @@ def run_prognose(body: PrognoseRequest):
         if etl_row.empty:
             raise HTTPException(404, f"Selskap med org.nr {body.orgn} ikke funnet")
 
-        paths = _latest_run_paths()
+        paths = _latest_run_paths(body.run_name)
         grunn_csv = str(paths[0]) if paths else None
 
         calc = PrognoseCalculator(
@@ -281,13 +302,34 @@ def run_prognose(body: PrognoseRequest):
             fusjon={"merge_yr": body.merge_yr, "synergy_pct": body.synergy_pct, "one_off": body.one_off},
             grunnlagsdata_csv_path=grunn_csv,
         )
-        forecast_df = calc.build_forecast()
+        forecast_df  = calc.build_forecast()
+        grunn_df     = calc.build_grunnlagsdata()
 
         # Convert integer year columns to strings for JSON
-        forecast_df.columns = [str(c) for c in forecast_df.columns]
+        grunn_df.columns = [str(c) for c in grunn_df.columns]
+
+        # Summary series for chart (from forecast, keyed by string year)
+        summary_rows = []
+        for param, col in [
+            ("Kostnadsgrunnlag", "Kostnadsgrunnlag"),
+            ("Kostnadsnorm",     "Kostnadsnorm"),
+            ("Inntektsramme",    "Inntektsramme"),
+            ("Driftsresultat",   "Driftsresultat"),
+            ("Effektivitet Dnett %",   "Effektivitet Dnett %"),
+            ("Effektivitet vektet %",  "Effektivitet vektet %"),
+            ("Avkastning NVE %",       "Avkastning NVE %"),
+        ]:
+            row: dict = {"Parameter": param, "Nettnivå": "Samlet", "Enhet": "kkr"}
+            for _, fr in forecast_df.iterrows():
+                row[str(int(fr["År"]))] = fr[col]
+            summary_rows.append(row)
+
+        all_year_cols = sorted([c for c in grunn_df.columns if c.isdigit()], key=int)
         return {
-            "forecast": _df_to_records(forecast_df),
+            "forecast": _df_to_records(grunn_df),
+            "summary":  summary_rows,
             "years": [str(y) for y in FORECAST_YEARS],
+            "all_years": all_year_cols,
             "company_name": str(etl_row.iloc[0].get("Selskap", body.orgn)),
         }
     except HTTPException:
@@ -301,16 +343,19 @@ def run_prognose(body: PrognoseRequest):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/kostnader")
-def get_kostnader(orgn: int | None = Query(default=None)):
-    paths = _latest_run_paths()
+def get_kostnader(orgn: int | None = Query(default=None), run_name: str | None = Query(default=None)):
+    paths = _latest_run_paths(run_name)
     if not paths:
         raise HTTPException(404, "Ingen resultater funnet.")
     grunn_csv = str(paths[0])
     try:
-        from kostnader import grunnlagsdata_to_rme  # noqa: PLC0415
-        df = grunnlagsdata_to_rme(grunn_csv)
+        from kostnader import grunnlagsdata_to_rme, _load_nve_id_map  # noqa: PLC0415
+        company_ids = None
         if orgn is not None:
-            df = df[df["Org.nr"] == orgn] if "Org.nr" in df.columns else df
+            id_map = _load_nve_id_map(grunn_csv)
+            nve_id = id_map.get(orgn, orgn)
+            company_ids = [nve_id]
+        df = grunnlagsdata_to_rme(grunn_csv, company_ids=company_ids)
         df.columns = [str(c) for c in df.columns]
         return {"table": _df_to_records(df)}
     except Exception as e:
@@ -322,8 +367,8 @@ def get_kostnader(orgn: int | None = Query(default=None)):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/ld-dea")
-def get_ld_dea():
-    paths = _latest_run_paths()
+def get_ld_dea(run_name: str | None = Query(default=None)):
+    paths = _latest_run_paths(run_name)
     if not paths:
         raise HTTPException(404, "Ingen resultater funnet.")
     _, ld_path, _ = paths
@@ -346,7 +391,7 @@ def get_ld_dea():
 
 @app.post("/api/frontier-scenario")
 def run_frontier_scenario(body: ScenarioRequest):
-    paths = _latest_run_paths()
+    paths = _latest_run_paths(body.run_name)
     if not paths:
         raise HTTPException(404, "Ingen resultater funnet.")
     _, ld_path, _ = paths
