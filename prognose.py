@@ -165,6 +165,102 @@ def build_investeringer_from_model(
     return result_df
 
 
+def estimate_task_elasticities(
+    grunnlagsdata_csv: str,
+    min_inv_kkr: float = 100.0,
+) -> dict:
+    """Estimate task-output growth per unit of investment from historical grunnlagsdata.
+
+    Uses pooled OLS (no intercept) across all companies and years:
+        Δtask = β × inv_MNOK  →  β = Σ(inv·Δtask) / Σ(inv²)
+
+    Returns dict with keys:
+        'ld': {hv_per_mnok, ss_per_mnok, sub_per_mnok}
+        'rd': {wv_ol_per_mnok, wv_uc_per_mnok, wv_sc_per_mnok, wv_ss_per_mnok}
+        'r2': {ld_hv, ld_ss, ld_sub, rd_ol, rd_uc, rd_sc, rd_ss}
+        'n_obs_ld', 'n_obs_rd'
+    """
+    try:
+        df = _read_grunnlag(grunnlagsdata_csv)
+    except Exception:
+        return {}
+
+    def _g2(r, col: str) -> float:
+        return float(r.get(col, 0) or 0)
+
+    ld_rows: list[dict] = []
+    rd_rows: list[dict] = []
+
+    for orgn, comp_df in df.groupby("orgn"):
+        comp_years = sorted(int(y) for y in comp_df["y"].unique())
+        for idx in range(1, len(comp_years)):
+            py, cy = comp_years[idx - 1], comp_years[idx]
+            pr = comp_df[comp_df["y"] == py].iloc[0]
+            cr = comp_df[comp_df["y"] == cy].iloc[0]
+
+            inv_ld_kkr = (
+                (_g2(cr, "ld_bv.sf") - _g2(pr, "ld_bv.sf")) + _g2(cr, "ld_dep.sf") +
+                (_g2(cr, "ld_bv.gf") - _g2(pr, "ld_bv.gf")) + _g2(cr, "ld_dep.gf")
+            )
+            if inv_ld_kkr >= min_inv_kkr:
+                ld_rows.append({
+                    "orgn": int(orgn), "year": cy,
+                    "inv_mnok": inv_ld_kkr / 1000,
+                    "delta_hv":  _g2(cr, "ld_hv")  - _g2(pr, "ld_hv"),
+                    "delta_ss":  _g2(cr, "ld_ss")  - _g2(pr, "ld_ss"),
+                    "delta_sub": _g2(cr, "ld_sub") - _g2(pr, "ld_sub"),
+                })
+
+            inv_rd_kkr = (
+                (_g2(cr, "rd_bv.sf") - _g2(pr, "rd_bv.sf")) + _g2(cr, "rd_dep.sf") +
+                (_g2(cr, "rd_bv.gf") - _g2(pr, "rd_bv.gf")) + _g2(cr, "rd_dep.gf")
+            )
+            if inv_rd_kkr >= min_inv_kkr:
+                rd_rows.append({
+                    "orgn": int(orgn), "year": cy,
+                    "inv_mnok": inv_rd_kkr / 1000,
+                    "delta_ol": _g2(cr, "rd_wv.ol") - _g2(pr, "rd_wv.ol"),
+                    "delta_uc": _g2(cr, "rd_wv.uc") - _g2(pr, "rd_wv.uc"),
+                    "delta_sc": _g2(cr, "rd_wv.sc") - _g2(pr, "rd_wv.sc"),
+                    "delta_ss": _g2(cr, "rd_wv.ss") - _g2(pr, "rd_wv.ss"),
+                })
+
+    def _ols(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+        denom = float(np.sum(x ** 2))
+        if denom == 0:
+            return 0.0, 0.0
+        beta = float(np.sum(x * y) / denom)
+        ss_res = float(np.sum((y - beta * x) ** 2))
+        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+        r2 = max(0.0, 1.0 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+        return round(beta, 6), round(r2, 4)
+
+    result: dict = {"ld": {}, "rd": {}, "r2": {}, "n_obs_ld": 0, "n_obs_rd": 0}
+
+    if ld_rows:
+        ld_df = pd.DataFrame(ld_rows)
+        x = ld_df["inv_mnok"].values
+        result["n_obs_ld"] = len(ld_df)
+        for col, key in [("delta_hv", "hv_per_mnok"), ("delta_ss", "ss_per_mnok"), ("delta_sub", "sub_per_mnok")]:
+            b, r2 = _ols(x, ld_df[col].values)
+            result["ld"][key] = b
+            result["r2"][f"ld_{col.replace('delta_', '')}"] = r2
+
+    if rd_rows:
+        rd_df = pd.DataFrame(rd_rows)
+        x = rd_df["inv_mnok"].values
+        result["n_obs_rd"] = len(rd_df)
+        for col, key in [
+            ("delta_ol", "wv_ol_per_mnok"), ("delta_uc", "wv_uc_per_mnok"),
+            ("delta_sc", "wv_sc_per_mnok"), ("delta_ss", "wv_ss_per_mnok"),
+        ]:
+            b, r2 = _ols(x, rd_df[col].values)
+            result["rd"][key] = b
+            result["r2"][f"rd_{col.replace('delta_', '')}"] = r2
+
+    return result
+
+
 def load_investeringer_for_company(company_id: int, csv_path: str = _INV_CSV) -> dict:
     """Load per-company investment rates (% of BFV) from investeringer.csv.
 
@@ -389,6 +485,7 @@ class PrognoseCalculator:
         self.avg_inv_sf_rd = 0.0
         self.avg_inv_gf_rd = 0.0
         self.last_hist_year = _BASE_YEAR - 1
+        self.task_elas: dict = {"ld": {}, "rd": {}}  # Δtask per MNOK invested
 
         if csv_path is None or not os.path.exists(csv_path):
             return
@@ -488,6 +585,55 @@ class PrognoseCalculator:
         self.ld_391_avg = float(np.mean([_g2(comp_df[comp_df["y"] == _yr].iloc[0], "ld_391") for _yr in _391_yrs]))
         self.rd_391_avg = float(np.mean([_g2(comp_df[comp_df["y"] == _yr].iloc[0], "rd_391") for _yr in _391_yrs]))
 
+        # Per-company task elasticities: Δtask per MNOK invested (OLS no-intercept)
+        _ld_inv_m: list[float] = []
+        _d_hv: list[float] = []
+        _d_ss: list[float] = []
+        _d_sub: list[float] = []
+        _rd_inv_m: list[float] = []
+        _d_ol: list[float] = []
+        _d_uc: list[float] = []
+        _d_sc: list[float] = []
+        _d_wss: list[float] = []
+        for _idx in range(1, len(all_years)):
+            _py, _cy = all_years[_idx - 1], all_years[_idx]
+            _pr = comp_df[comp_df["y"] == _py].iloc[0]
+            _cr = comp_df[comp_df["y"] == _cy].iloc[0]
+            _i_ld = (
+                (_g2(_cr, "ld_bv.sf") - _g2(_pr, "ld_bv.sf")) + _g2(_cr, "ld_dep.sf") +
+                (_g2(_cr, "ld_bv.gf") - _g2(_pr, "ld_bv.gf")) + _g2(_cr, "ld_dep.gf")
+            ) / 1000  # MNOK
+            if _i_ld > 0.1:
+                _ld_inv_m.append(_i_ld)
+                _d_hv.append(_g2(_cr, "ld_hv")  - _g2(_pr, "ld_hv"))
+                _d_ss.append(_g2(_cr, "ld_ss")  - _g2(_pr, "ld_ss"))
+                _d_sub.append(_g2(_cr, "ld_sub") - _g2(_pr, "ld_sub"))
+            _i_rd = (
+                (_g2(_cr, "rd_bv.sf") - _g2(_pr, "rd_bv.sf")) + _g2(_cr, "rd_dep.sf") +
+                (_g2(_cr, "rd_bv.gf") - _g2(_pr, "rd_bv.gf")) + _g2(_cr, "rd_dep.gf")
+            ) / 1000
+            if _i_rd > 0.1:
+                _rd_inv_m.append(_i_rd)
+                _d_ol.append(_g2(_cr, "rd_wv.ol") - _g2(_pr, "rd_wv.ol"))
+                _d_uc.append(_g2(_cr, "rd_wv.uc") - _g2(_pr, "rd_wv.uc"))
+                _d_sc.append(_g2(_cr, "rd_wv.sc") - _g2(_pr, "rd_wv.sc"))
+                _d_wss.append(_g2(_cr, "rd_wv.ss") - _g2(_pr, "rd_wv.ss"))
+        if _ld_inv_m:
+            _x = np.array(_ld_inv_m)
+            _den = float(np.sum(_x ** 2))
+            if _den > 0:
+                self.task_elas["ld"]["hv_per_mnok"]  = float(np.sum(_x * np.array(_d_hv))  / _den)
+                self.task_elas["ld"]["ss_per_mnok"]  = float(np.sum(_x * np.array(_d_ss))  / _den)
+                self.task_elas["ld"]["sub_per_mnok"] = float(np.sum(_x * np.array(_d_sub)) / _den)
+        if _rd_inv_m:
+            _x = np.array(_rd_inv_m)
+            _den = float(np.sum(_x ** 2))
+            if _den > 0:
+                self.task_elas["rd"]["wv_ol_per_mnok"] = float(np.sum(_x * np.array(_d_ol))  / _den)
+                self.task_elas["rd"]["wv_uc_per_mnok"] = float(np.sum(_x * np.array(_d_uc))  / _den)
+                self.task_elas["rd"]["wv_sc_per_mnok"] = float(np.sum(_x * np.array(_d_sc))  / _den)
+                self.task_elas["rd"]["wv_ss_per_mnok"] = float(np.sum(_x * np.array(_d_wss)) / _den)
+
     # ------------------------------------------------------------------
     # Merger synergy
     # ------------------------------------------------------------------
@@ -534,6 +680,15 @@ class PrognoseCalculator:
         _ld_bfv_gf = self.ld_bfv_gf0
         _rd_bfv_sf = self.rd_bfv_sf0
         _rd_bfv_gf = self.rd_bfv_gf0
+
+        # Task output variables — grown via investment elasticities each year
+        ld_hv    = self.ld_hv0
+        ld_ss    = self.ld_ss0
+        ld_sub   = self.ld_sub0
+        rd_wv_ol = self.rd_wv_ol0
+        rd_wv_uc = self.rd_wv_uc0
+        rd_wv_sc = self.rd_wv_sc0
+        rd_wv_ss = self.rd_wv_ss0
 
         # KPI bridge: bring avg investment from last_hist_year to _BASE_YEAR price level
         _default_kpi = self._get(self.f["kpi"], _BASE_YEAR, 2.0)
@@ -591,6 +746,7 @@ class PrognoseCalculator:
                     ld_pens, ld_pens_eq, ld_impl, ld_sal, ld_sal_cap,
                     rd_pens, rd_pens_eq, rd_impl, rd_sal, rd_sal_cap, rd_utred,
                     ld_391, rd_391,
+                    ld_hv, ld_ss, ld_sub, rd_wv_ol, rd_wv_uc, rd_wv_sc, rd_wv_ss,
                 )
                 ld_dv_mat  /= (1 + dv_gr);   ld_dv_lab  /= (1 + lonn_gr)
                 rd_dv_mat  /= (1 + dv_gr);   rd_dv_lab  /= (1 + lonn_gr)
@@ -630,6 +786,8 @@ class PrognoseCalculator:
 
                 # BFV: edited investments (absolute NOK) → historical avg (KPI-grown) → fallback % of BFV
                 _inv_kpi_cum *= (1 + kpi)
+                _inv_ld_mnok = 0.0
+                _inv_rd_mnok = 0.0
                 if self.edited_inv_nok:
                     # User has edited investments in absolute NOK — use those directly
                     _ld_inv_sf = self.edited_inv_nok.get("inv_sf_ld", {}).get(year, 0)
@@ -642,6 +800,8 @@ class PrognoseCalculator:
                     _rd_bfv_gf = _rd_bfv_gf + _rd_inv_gf - _rd_bfv_gf * self.avs_sats_frac
                     ld_bfv = _ld_bfv_sf + _ld_bfv_gf
                     rd_bfv = _rd_bfv_sf + _rd_bfv_gf
+                    _inv_ld_mnok = (_ld_inv_sf + _ld_inv_gf) / 1000
+                    _inv_rd_mnok = (_rd_inv_sf + _rd_inv_gf) / 1000
                 elif self.use_historical_inv and self._has_investment_history:
                     _ld_inv_sf = _inv_sf_ld_base * _inv_kpi_cum
                     _ld_inv_gf = _inv_gf_ld_base * _inv_kpi_cum
@@ -653,11 +813,28 @@ class PrognoseCalculator:
                     _rd_bfv_gf = _rd_bfv_gf + _rd_inv_gf - _rd_bfv_gf * self.avs_sats_frac
                     ld_bfv = _ld_bfv_sf + _ld_bfv_gf
                     rd_bfv = _rd_bfv_sf + _rd_bfv_gf
+                    _inv_ld_mnok = (_ld_inv_sf + _ld_inv_gf) / 1000
+                    _inv_rd_mnok = (_rd_inv_sf + _rd_inv_gf) / 1000
                 else:
                     inv_ld = self._get(self.inv["dnett_pct"], year, 0) / 100
                     inv_rd = self._get(self.inv["rnett_pct"], year, 0) / 100
+                    _inv_ld_mnok = ld_bfv * inv_ld / 1000
+                    _inv_rd_mnok = rd_bfv * inv_rd / 1000
                     ld_bfv = ld_bfv * (1 + inv_ld - self.avs_sats_frac)
                     rd_bfv = rd_bfv * (1 + inv_rd - self.avs_sats_frac)
+
+                # Grow task output variables via investment elasticities
+                if self.task_elas.get("ld") and _inv_ld_mnok > 0:
+                    _e = self.task_elas["ld"]
+                    ld_hv  += _e.get("hv_per_mnok",  0.0) * _inv_ld_mnok
+                    ld_ss  += _e.get("ss_per_mnok",  0.0) * _inv_ld_mnok
+                    ld_sub += _e.get("sub_per_mnok", 0.0) * _inv_ld_mnok
+                if self.task_elas.get("rd") and _inv_rd_mnok > 0:
+                    _e = self.task_elas["rd"]
+                    rd_wv_ol += _e.get("wv_ol_per_mnok", 0.0) * _inv_rd_mnok
+                    rd_wv_uc += _e.get("wv_uc_per_mnok", 0.0) * _inv_rd_mnok
+                    rd_wv_sc += _e.get("wv_sc_per_mnok", 0.0) * _inv_rd_mnok
+                    rd_wv_ss += _e.get("wv_ss_per_mnok", 0.0) * _inv_rd_mnok
 
                 ld_kile *= 1 + kpi
                 rd_kile *= 1 + kpi
@@ -766,9 +943,9 @@ class PrognoseCalculator:
                 "LD BFV gf": round(ld_bfv_gf),
                 "LD AVS sf": round(ld_avs_sf, 1),
                 "LD AVS gf": round(ld_avs_gf, 1),
-                "LD Høyspentnett km": round(self.ld_hv0, 2),
-                "LD Nettstasjoner": round(self.ld_ss0, 2),
-                "LD Nettkunder": round(self.ld_sub0),
+                "LD Høyspentnett km": round(ld_hv, 2),
+                "LD Nettstasjoner": round(ld_ss, 2),
+                "LD Nettkunder": round(ld_sub),
                 "RD D&V ekskl. lønn": round(rd_dv_mat * (1 - syn)),
                 "RD Lønnskost. ekskl. pensjon": round(rd_sal * (1 - syn)),
                 "RD Aktiverte lønnskost.": round(rd_sal_cap * (1 - syn)),
@@ -781,10 +958,10 @@ class PrognoseCalculator:
                 "RD BFV gf": round(rd_bfv_gf),
                 "RD AVS sf": round(rd_avs_sf, 1),
                 "RD AVS gf": round(rd_avs_gf, 1),
-                "RD Vekt luftlinjer": round(self.rd_wv_ol0, 1),
-                "RD Vekt jordkabler": round(self.rd_wv_uc0, 2),
-                "RD Vekt sjøkabler": round(self.rd_wv_sc0, 1),
-                "RD Vekt stasjonsvariabel": round(self.rd_wv_ss0, 1),
+                "RD Vekt luftlinjer": round(rd_wv_ol, 1),
+                "RD Vekt jordkabler": round(rd_wv_uc, 2),
+                "RD Vekt sjøkabler": round(rd_wv_sc, 1),
+                "RD Vekt stasjonsvariabel": round(rd_wv_ss, 1),
             }
             rows.append(row_data)
 
@@ -795,7 +972,8 @@ class PrognoseCalculator:
                  _ld_bfv_sf, _ld_bfv_gf, _rd_bfv_sf, _rd_bfv_gf,
                  ld_pens, ld_pens_eq, ld_impl, ld_sal, ld_sal_cap,
                  rd_pens, rd_pens_eq, rd_impl, rd_sal, rd_sal_cap, rd_utred,
-                 ld_391, rd_391) = _bp_saved
+                 ld_391, rd_391,
+                 ld_hv, ld_ss, ld_sub, rd_wv_ol, rd_wv_uc, rd_wv_sc, rd_wv_ss) = _bp_saved
 
         return pd.DataFrame(rows)
 
