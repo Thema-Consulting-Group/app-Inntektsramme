@@ -261,6 +261,64 @@ def estimate_task_elasticities(
     return result
 
 
+def get_task_elasticity_observations(
+    grunnlagsdata_csv: str,
+    min_inv_kkr: float = 100.0,
+) -> dict:
+    """Return raw (company, year) observations used in the elasticity regressions.
+
+    Returns {'ld': [...], 'rd': [...]} where each item has:
+        orgn, year, inv_mnok, delta_hv/ss/sub  (LD)
+        orgn, year, inv_mnok, delta_ol/uc/sc/ss (RD)
+    """
+    try:
+        df = _read_grunnlag(grunnlagsdata_csv)
+    except Exception:
+        return {"ld": [], "rd": []}
+
+    def _g2(r, col: str) -> float:
+        return float(r.get(col, 0) or 0)
+
+    ld_rows: list[dict] = []
+    rd_rows: list[dict] = []
+
+    for orgn, comp_df in df.groupby("orgn"):
+        comp_years = sorted(int(y) for y in comp_df["y"].unique())
+        for idx in range(1, len(comp_years)):
+            py, cy = comp_years[idx - 1], comp_years[idx]
+            pr = comp_df[comp_df["y"] == py].iloc[0]
+            cr = comp_df[comp_df["y"] == cy].iloc[0]
+
+            inv_ld_kkr = (
+                (_g2(cr, "ld_bv.sf") - _g2(pr, "ld_bv.sf")) + _g2(cr, "ld_dep.sf") +
+                (_g2(cr, "ld_bv.gf") - _g2(pr, "ld_bv.gf")) + _g2(cr, "ld_dep.gf")
+            )
+            if inv_ld_kkr >= min_inv_kkr:
+                ld_rows.append({
+                    "orgn": int(orgn), "year": cy,
+                    "inv_mnok": round(inv_ld_kkr / 1000, 4),
+                    "delta_hv":  round(_g2(cr, "ld_hv")  - _g2(pr, "ld_hv"),  4),
+                    "delta_ss":  round(_g2(cr, "ld_ss")  - _g2(pr, "ld_ss"),  4),
+                    "delta_sub": round(_g2(cr, "ld_sub") - _g2(pr, "ld_sub"), 4),
+                })
+
+            inv_rd_kkr = (
+                (_g2(cr, "rd_bv.sf") - _g2(pr, "rd_bv.sf")) + _g2(cr, "rd_dep.sf") +
+                (_g2(cr, "rd_bv.gf") - _g2(pr, "rd_bv.gf")) + _g2(cr, "rd_dep.gf")
+            )
+            if inv_rd_kkr >= min_inv_kkr:
+                rd_rows.append({
+                    "orgn": int(orgn), "year": cy,
+                    "inv_mnok": round(inv_rd_kkr / 1000, 4),
+                    "delta_ol": round(_g2(cr, "rd_wv.ol") - _g2(pr, "rd_wv.ol"), 4),
+                    "delta_uc": round(_g2(cr, "rd_wv.uc") - _g2(pr, "rd_wv.uc"), 4),
+                    "delta_sc": round(_g2(cr, "rd_wv.sc") - _g2(pr, "rd_wv.sc"), 4),
+                    "delta_ss": round(_g2(cr, "rd_wv.ss") - _g2(pr, "rd_wv.ss"), 4),
+                })
+
+    return {"ld": ld_rows, "rd": rd_rows}
+
+
 def load_investeringer_for_company(company_id: int, csv_path: str = _INV_CSV) -> dict:
     """Load per-company investment rates (% of BFV) from investeringer.csv.
 
@@ -342,9 +400,11 @@ class PrognoseCalculator:
         grunnlagsdata_csv_path: str | None = None,
         use_historical_inv: bool = True,
         edited_inv_nok: dict | None = None,
+        task_elas_override: dict | None = None,
     ):
         self.use_historical_inv = use_historical_inv
         self.edited_inv_nok = edited_inv_nok or {}  # {inv_sf_ld, inv_gf_ld, inv_sf_rd, inv_gf_rd} → {yr: nok}
+        self._task_elas_override = task_elas_override  # applied after _init_subcomponents if provided
         self.f = forutsetninger or DEFAULT_FORUTSETNINGER
         # If no override passed, look up per-company values from investeringer.csv
         if investeringer is None:
@@ -365,6 +425,12 @@ class PrognoseCalculator:
 
         self._init_base(base_ir, base_etl)
         self._init_subcomponents(grunnlagsdata_csv_path, base_etl)
+        # Apply user override AFTER per-company estimation so it always wins
+        if self._task_elas_override:
+            if "ld" in self._task_elas_override:
+                self.task_elas["ld"].update(self._task_elas_override["ld"])
+            if "rd" in self._task_elas_override:
+                self.task_elas["rd"].update(self._task_elas_override["rd"])
 
     # ------------------------------------------------------------------
     # Helpers

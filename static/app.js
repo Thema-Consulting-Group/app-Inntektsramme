@@ -35,6 +35,7 @@ function dashboard() {
       { id: 'prognose', label: 'Prognosebygger',         icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>' },
       { id: 'kostnader',label: 'Kostnader',              icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>' },
       { id: 'frontier', label: 'Frontselskapsanalyse',   icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>' },
+      { id: 'elasticities', label: 'Oppgaveelastisiteter', icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>' },
     ],
 
     /* ── global state ────────────────────── */
@@ -63,6 +64,18 @@ function dashboard() {
     /* ── Tab 3: Kostnader ────────────────── */
     kost: { orgn: '', table: [] },
     kostColumns: [],
+
+    /* ── Tab 5: Task elasticities ──────────── */
+    elas: {
+      loading: false,
+      estimated: null,   // raw response from /api/task-elasticities
+      overrides: {},     // {key: value} user-edited values, e.g. {ld_hv_per_mnok: 0.12}
+      useOverrides: false,
+      scatterData: null, // raw obs from /api/task-elasticities/scatter
+      scatterLoading: false,
+      scatterVar: 'ld_hv',
+      scatterOrgn: '',   // '' = all companies
+    },
 
     /* ── Tab 4: Frontier ─────────────────── */
     deaCompanies: [],
@@ -235,6 +248,9 @@ function dashboard() {
           synergy_pct: this.prog.synergyPct,
           one_off: this.prog.oneOff,
           run_name: this._runName(),
+          task_elas_override: (this.elas.useOverrides && this.elas.estimated)
+            ? this._buildElasOverride()
+            : null,
         };
         const data = await this.api('POST', '/api/prognose', body);
         this.prog.result    = data.forecast ?? [];
@@ -248,6 +264,144 @@ function dashboard() {
       } finally {
         this.loading = false;
       }
+    },
+
+    // ── Elasticity helpers ──────────────────────────────────────
+    async loadElasticities() {
+      this.elas.loading = true;
+      try {
+        const data = await this.api('GET', '/api/task-elasticities' + this._runQs());
+        this.elas.estimated = data;
+        // Populate overrides with estimated values as starting point
+        const fields = this._elasticityFields();
+        for (const f of fields) {
+          if (!(f.key in this.elas.overrides)) {
+            this.elas.overrides[f.key] = f.value(data);
+          }
+        }
+      } catch (e) {
+        this.globalError = e.message;
+      } finally {
+        this.elas.loading = false;
+      }
+    },
+
+    _elasticityFields() {
+      const e = this.elas.estimated ?? {};
+      const ld = e.ld ?? {};
+      const rd = e.rd ?? {};
+      return [
+        { key: 'ld_hv_per_mnok',    label: 'LD Høyspentnett km / MNOK',       value: d => d.ld?.hv_per_mnok  ?? 0 },
+        { key: 'ld_ss_per_mnok',     label: 'LD Nettstasjoner / MNOK',          value: d => d.ld?.ss_per_mnok  ?? 0 },
+        { key: 'ld_sub_per_mnok',    label: 'LD Nettkunder / MNOK',             value: d => d.ld?.sub_per_mnok ?? 0 },
+        { key: 'rd_wv_ol_per_mnok',  label: 'RD Vekt luftlinjer / MNOK',        value: d => d.rd?.wv_ol_per_mnok ?? 0 },
+        { key: 'rd_wv_uc_per_mnok',  label: 'RD Vekt jordkabler / MNOK',        value: d => d.rd?.wv_uc_per_mnok ?? 0 },
+        { key: 'rd_wv_sc_per_mnok',  label: 'RD Vekt sjøkabler / MNOK',         value: d => d.rd?.wv_sc_per_mnok ?? 0 },
+        { key: 'rd_wv_ss_per_mnok',  label: 'RD Vekt stasjonsvariabel / MNOK',  value: d => d.rd?.wv_ss_per_mnok ?? 0 },
+      ];
+    },
+
+    _buildElasOverride() {
+      const o = this.elas.overrides;
+      return {
+        ld: {
+          hv_per_mnok:  Number(o.ld_hv_per_mnok  ?? 0),
+          ss_per_mnok:  Number(o.ld_ss_per_mnok   ?? 0),
+          sub_per_mnok: Number(o.ld_sub_per_mnok  ?? 0),
+        },
+        rd: {
+          wv_ol_per_mnok: Number(o.rd_wv_ol_per_mnok ?? 0),
+          wv_uc_per_mnok: Number(o.rd_wv_uc_per_mnok ?? 0),
+          wv_sc_per_mnok: Number(o.rd_wv_sc_per_mnok ?? 0),
+          wv_ss_per_mnok: Number(o.rd_wv_ss_per_mnok ?? 0),
+        },
+      };
+    },
+
+    resetElasOverrides() {
+      if (!this.elas.estimated) return;
+      const fields = this._elasticityFields();
+      for (const f of fields) {
+        this.elas.overrides[f.key] = f.value(this.elas.estimated);
+      }
+    },
+
+    async loadElasScatter() {
+      this.elas.scatterLoading = true;
+      try {
+        const data = await this.api('GET', '/api/task-elasticities/scatter' + this._runQs());
+        this.elas.scatterData = data;
+        this.$nextTick(() => this.renderElasScatter());
+      } catch (e) {
+        this.globalError = e.message;
+      } finally {
+        this.elas.scatterLoading = false;
+      }
+    },
+
+    renderElasScatter() {
+      const el = document.getElementById('elas-scatter-chart');
+      if (!el || !this.elas.scatterData || !this.elas.estimated) return;
+
+      const v = this.elas.scatterVar;
+      const varMap = {
+        'ld_hv':    { net: 'ld', delta: 'delta_hv',  beta: 'hv_per_mnok',    label: 'LD Høyspentnett km' },
+        'ld_ss':    { net: 'ld', delta: 'delta_ss',  beta: 'ss_per_mnok',    label: 'LD Nettstasjoner' },
+        'ld_sub':   { net: 'ld', delta: 'delta_sub', beta: 'sub_per_mnok',   label: 'LD Nettkunder' },
+        'rd_wv_ol': { net: 'rd', delta: 'delta_ol',  beta: 'wv_ol_per_mnok', label: 'RD Vekt luftlinjer' },
+        'rd_wv_uc': { net: 'rd', delta: 'delta_uc',  beta: 'wv_uc_per_mnok', label: 'RD Vekt jordkabler' },
+        'rd_wv_sc': { net: 'rd', delta: 'delta_sc',  beta: 'wv_sc_per_mnok', label: 'RD Vekt sjøkabler' },
+        'rd_wv_ss': { net: 'rd', delta: 'delta_ss',  beta: 'wv_ss_per_mnok', label: 'RD Vekt stasjonsvariabel' },
+      };
+      const cfg = varMap[v];
+      if (!cfg) return;
+
+      const obsArr = cfg.net === 'ld' ? this.elas.scatterData.ld : this.elas.scatterData.rd;
+      const betaVal = this.elas.estimated?.[cfg.net]?.[cfg.beta] ?? 0;
+
+      let filtered = obsArr;
+      if (this.elas.scatterOrgn) {
+        filtered = obsArr.filter(r => String(r.orgn) === String(this.elas.scatterOrgn));
+      }
+
+      if (!filtered?.length) return;
+
+      const x = filtered.map(r => r.inv_mnok);
+      const y = filtered.map(r => r[cfg.delta] ?? 0);
+      const labels = filtered.map(r => {
+        const co = this.progCompanies.find(c => String(c.orgn) === String(r.orgn));
+        return `${co?.name ?? 'Selskap ' + r.orgn}, ${r.year}`;
+      });
+      const xMax = Math.max(...x) * 1.05;
+
+      // OLS no-intercept for current filter
+      const sumX2 = x.reduce((a, v) => a + v * v, 0);
+      const sumXY = x.reduce((a, v, i) => a + v * y[i], 0);
+      const localBeta = sumX2 > 0 ? sumXY / sumX2 : betaVal;
+
+      Plotly.react(el, [
+        {
+          x, y,
+          text: labels,
+          mode: 'markers',
+          type: 'scatter',
+          name: 'Observasjoner',
+          marker: { color: BRAND, size: 7, opacity: 0.65 },
+          hovertemplate: '%{text}<br>Inv: %{x:.1f} MNOK<br>Δ: %{y:.3f}<extra></extra>',
+        },
+        {
+          x: [0, xMax], y: [0, localBeta * xMax],
+          mode: 'lines',
+          name: `β = ${localBeta.toFixed(5)}${this.elas.scatterOrgn ? '' : ' (pooled)'}`,
+          line: { color: RED, dash: 'dash', width: 2 },
+          hoverinfo: 'skip',
+        },
+      ], {
+        ...BASE_LAYOUT,
+        xaxis: { title: 'Investering (MNOK)', gridcolor: '#f1f5f9', zeroline: true },
+        yaxis: { title: 'Δ ' + cfg.label, gridcolor: '#f1f5f9', zeroline: true },
+        height: 380,
+      }, PLOTLY_CONFIG);
     },
 
     renderPrognoseChart() {
@@ -284,7 +438,8 @@ function dashboard() {
 
       Plotly.react(el, traces, {
         ...BASE_LAYOUT,
-        yaxis: { title: '1000 NOK', gridcolor: '#f1f5f9' },
+        margin: { t: 50, b: 40, l: 60, r: 16 },
+        yaxis: { title: '1000 NOK', gridcolor: '#f1f5f9', rangemode: 'tozero' },
         xaxis: { title: 'År', dtick: 1, gridcolor: '#f1f5f9' },
         height: 300,
       }, PLOTLY_CONFIG);
@@ -304,7 +459,8 @@ function dashboard() {
       }));
       Plotly.react(effEl, effTraces, {
         ...BASE_LAYOUT,
-        yaxis: { title: '%', gridcolor: '#f1f5f9' },
+        margin: { t: 50, b: 40, l: 50, r: 16 },
+        yaxis: { title: '%', gridcolor: '#f1f5f9', rangemode: 'tozero' },
         xaxis: { title: 'År', dtick: 1, gridcolor: '#f1f5f9' },
         height: 240,
       }, PLOTLY_CONFIG);

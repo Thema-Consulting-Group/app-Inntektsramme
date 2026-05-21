@@ -113,6 +113,7 @@ class PrognoseRequest(BaseModel):
     synergy_pct: float = 0.0
     one_off: float = 0.0
     run_name: str | None = None
+    task_elas_override: dict | None = None  # {"ld": {...}, "rd": {...}}
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +302,7 @@ def run_prognose(body: PrognoseRequest):
             labor_share_rd=body.labor_share_rd,
             fusjon={"merge_yr": body.merge_yr, "synergy_pct": body.synergy_pct, "one_off": body.one_off},
             grunnlagsdata_csv_path=grunn_csv,
+            task_elas_override=body.task_elas_override,
         )
         forecast_df  = calc.build_forecast()
         grunn_df     = calc.build_grunnlagsdata()
@@ -375,6 +377,19 @@ def get_task_elasticities(run_name: str | None = Query(default=None)):
     try:
         from prognose import estimate_task_elasticities  # noqa: PLC0415
         return estimate_task_elasticities(grunn_csv)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/task-elasticities/scatter")
+def get_task_elasticities_scatter(run_name: str | None = Query(default=None)):
+    paths = _latest_run_paths(run_name)
+    if not paths:
+        raise HTTPException(404, "Ingen resultater funnet.")
+    grunn_csv = str(paths[0])
+    try:
+        from prognose import get_task_elasticity_observations  # noqa: PLC0415
+        return get_task_elasticity_observations(grunn_csv)
     except Exception as e:
         raise HTTPException(500, str(e))
 

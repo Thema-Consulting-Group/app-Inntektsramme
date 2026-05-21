@@ -97,7 +97,7 @@
     </header>
 
     <!-- Content -->
-    <main class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+    <main class="flex-1 overflow-y-auto px-6 py-6 space-y-6 relative">
 
       <!-- ══════════ TAB 1: RME MODELL ══════════ -->
       <section x-show="tab === 'rme'" x-cloak>
@@ -267,9 +267,9 @@
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                   <template x-for="key in ['Inntektsramme','Kostnadsgrunnlag','Kostnadsnorm','Driftsresultat']" :key="key">
                     <div class="metric-card">
-                      <p class="metric-label" x-text="key + ' ' + (prog.years[0] ?? '')"></p>
+                      <p class="metric-label" x-text="key + ' ' + (prog.years[1] ?? prog.years[0] ?? '')"></p>
                       <p class="metric-value text-brand-700"
-                         x-text="fmtKkr((prog.summary.find(r => r['Parameter'] === key) ?? {})[prog.years[0]])"></p>
+                         x-text="fmtKkr((prog.summary.find(r => r['Parameter'] === key) ?? {})[prog.years[1] ?? prog.years[0]])"></p>
                     </div>
                   </template>
                 </div>
@@ -285,14 +285,18 @@
 
                 <!-- Efficiency chart -->
                 <div class="card p-4 mb-4">
-                  <h3 class="text-sm font-semibold mb-2">Effektivitet og avkastning</h3>
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold">Effektivitet og avkastning</h3>
+                    <button x-show="prog.summary.length" @click="downloadCsv(prog.summary.filter(r => ['Effektivitet Dnett %', 'Effektivitet vektet %', 'Avkastning NVE %'].includes(r['Parameter'])), 'effektivitet_avkastning')" class="btn-xs">&#8595; CSV</button>
+                  </div>
                   <div id="prognose-eff-chart" style="height:240px"></div>
                 </div>
 
                 <!-- Full grunnlagsdata table -->
                 <details class="card p-0 overflow-hidden">
-                  <summary class="px-4 py-3 cursor-pointer text-sm font-semibold border-b border-slate-100 select-none">
-                    Grunnlagsdata – full tabell
+                  <summary class="px-4 py-3 cursor-pointer text-sm font-semibold border-b border-slate-100 select-none flex items-center justify-between">
+                    <span>Grunnlagsdata – full tabell</span>
+                    <button x-show="prog.result.length" @click.stop="downloadCsv(prog.result, 'grunnlagsdata')" class="btn-xs">&#8595; CSV</button>
                   </summary>
                   <div class="overflow-x-auto max-h-96">
                     <table class="data-table">
@@ -629,11 +633,135 @@
 
       </section>
 
-      <!-- Fullscreen loader -->
+      <!-- ══════════ TAB 5: OPPGAVEELASTISITETER ══════════ -->
+      <section x-show="tab === 'elasticities'" x-cloak
+               x-init="$watch('tab', v => { if (v === 'elasticities') loadElasticities() })">
+
+        <!-- Header row -->
+        <div class="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h2 class="text-sm font-semibold text-slate-700">Oppgaveelastisiteter</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Estimert fra historiske grunnlagsdata (ΔOppgave per MNOK investert). Rediger og aktiver overstyring for å bruke egne koeffisienter i prognosen.</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <button @click="loadElasticities()" class="btn-secondary text-xs" :disabled="elas.loading">
+              <span x-show="!elas.loading">↺ Last på nytt</span>
+              <span x-show="elas.loading">Laster…</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Override toggle -->
+        <div x-show="elas.estimated" class="card flex items-center gap-4 py-3">
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" x-model="elas.useOverrides" class="w-4 h-4 rounded text-brand-600">
+            <span class="text-sm font-medium text-slate-700">Bruk egendefinerte elastisiteter i prognosen</span>
+          </label>
+          <span x-show="elas.useOverrides"
+                class="text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-2 py-0.5">
+            Aktiv – prognosen bruker dine verdier
+          </span>
+          <button x-show="elas.useOverrides" @click="resetElasOverrides()"
+                  class="ml-auto btn-secondary text-xs">Tilbakestill til estimerte</button>
+        </div>
+
+        <!-- Elasticity table -->
+        <div x-show="elas.estimated" class="card overflow-hidden p-0">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th class="w-2/5">Variabel</th>
+                <th>Estimert</th>
+                <th>R²</th>
+                <th>Obs.</th>
+                <th>Override</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- LD fields -->
+              <template x-for="(f, i) in _elasticityFields()" :key="f.key">
+                <tr>
+                  <td class="font-medium text-slate-700" x-text="f.label"></td>
+                  <td class="font-mono text-xs" x-text="f.value(elas.estimated).toFixed(5)"></td>
+                  <td class="font-mono text-xs text-slate-400"
+                      x-text="(elas.estimated?.r2?.[f.key.replace('_per_mnok','').replace('ld_','ld_').replace('rd_wv_','rd_')] ?? '—')"></td>
+                  <td class="font-mono text-xs text-slate-400"
+                      x-text="f.key.startsWith('ld_') ? (elas.estimated?.n_obs_ld ?? '—') : (elas.estimated?.n_obs_rd ?? '—')"></td>
+                  <td>
+                    <input type="number" step="any"
+                           x-model.number="elas.overrides[f.key]"
+                           :disabled="!elas.useOverrides"
+                           class="input w-32 font-mono text-xs"
+                           :class="elas.useOverrides ? '' : 'opacity-40 cursor-not-allowed'">
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Obs counts info -->
+        <div x-show="elas.estimated" class="text-xs text-slate-400 px-1">
+          Poolede observasjoner: LD <span x-text="elas.estimated?.n_obs_ld ?? 0" class="font-mono text-slate-600"></span>,
+          RD <span x-text="elas.estimated?.n_obs_rd ?? 0" class="font-mono text-slate-600"></span>
+          (selskaper × år med investering ≥ 100 kkr)
+        </div>
+
+        <!-- Scatter plot section -->
+        <div x-show="elas.estimated" class="card space-y-4">
+          <div class="flex items-center gap-4 flex-wrap">
+            <h3 class="text-sm font-semibold text-slate-700">Scatter: Investering vs. Δoppgave</h3>
+            <select x-model="elas.scatterVar" @change="elas.scatterData && renderElasScatter()"
+                    class="input w-72 text-xs">
+              <optgroup label="Lokalt distribusjonsnett (LD)">
+                <option value="ld_hv">LD Høyspentnett km</option>
+                <option value="ld_ss">LD Nettstasjoner</option>
+                <option value="ld_sub">LD Nettkunder</option>
+              </optgroup>
+              <optgroup label="Regionalnett (RD)">
+                <option value="rd_wv_ol">RD Vekt luftlinjer</option>
+                <option value="rd_wv_uc">RD Vekt jordkabler</option>
+                <option value="rd_wv_sc">RD Vekt sjøkabler</option>
+                <option value="rd_wv_ss">RD Vekt stasjonsvariabel</option>
+              </optgroup>
+            </select>
+            <select x-model="elas.scatterOrgn" @change="elas.scatterData && renderElasScatter()"
+                    class="input w-56 text-xs">
+              <option value="">Alle selskaper</option>
+              <template x-for="c in progCompanies" :key="c.orgn">
+                <option :value="c.orgn" x-text="c.name"></option>
+              </template>
+            </select>
+            <button @click="loadElasScatter()" class="btn-secondary text-xs" :disabled="elas.scatterLoading">
+              <span x-show="!elas.scatterLoading">Vis scatter</span>
+              <span x-show="elas.scatterLoading">Laster…</span>
+            </button>
+          </div>
+          <div x-show="elas.scatterData">
+            <div id="elas-scatter-chart"></div>
+          </div>
+          <p x-show="!elas.scatterData && !elas.scatterLoading" class="text-xs text-slate-400">
+            Klikk «Vis scatter» for å laste observasjoner og plotte regresjonslinjen.
+          </p>
+        </div>
+
+        <div x-show="!elas.estimated && !elas.loading" class="empty-state">
+          <p class="text-slate-500 text-sm">Ingen kjøring valgt, eller grunnlagsdata ikke tilgjengelig.</p>
+        </div>
+
+      </section>
+
+      <!-- Content-area loader -->
       <div x-show="loading && !pipelineRunning"
-           class="fixed inset-0 bg-white/60 flex items-center justify-center z-40 backdrop-blur-sm">
-        <div class="flex items-center gap-3 text-slate-600">
-          <div class="w-5 h-5 border-2 border-brand-600/30 border-t-brand-600 rounded-full animate-spin"></div>
+           x-transition:enter="transition-opacity duration-150"
+           x-transition:enter-start="opacity-0"
+           x-transition:enter-end="opacity-100"
+           x-transition:leave="transition-opacity duration-150"
+           x-transition:leave-start="opacity-100"
+           x-transition:leave-end="opacity-0"
+           class="absolute inset-0 bg-white/70 backdrop-blur-[2px] flex items-center justify-center z-40 pointer-events-none">
+        <div class="flex items-center gap-3 bg-white shadow-md rounded-xl px-5 py-3 text-slate-600 pointer-events-auto">
+          <div class="w-4 h-4 border-2 border-brand-600/30 border-t-brand-600 rounded-full animate-spin"></div>
           <span class="text-sm font-medium">Beregner …</span>
         </div>
       </div>
