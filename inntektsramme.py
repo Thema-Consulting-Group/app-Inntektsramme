@@ -28,8 +28,12 @@ class Config:
         self._run_name: str | None = run_name  # if set, use this specific Run_* dir
 
         fp = self.f  # shorthand
-        # Pre-compute reference rate once
-        self.referanserente: float = self._calc_referanserente()
+        # Pre-compute reference rate once — use config override if provided
+        override = fp.get("referanserente")
+        self.referanserente: float = (
+            float(override) / 100.0 if override is not None
+            else self._calc_referanserente()
+        )
 
         # Convenience scalars
         self.rho: float = fp["rho"]
@@ -323,17 +327,29 @@ class DEANorm:
         overrides: dict,
     ):
         # Build efficiency mapping: bootstrap results + overrides
+        # None override → 1.0 ("evalueres ikke" = 100% efficient, full cost as norm)
         eff_map = results_df.set_index("id")[eff_col].to_dict()
-        eff_map.update(overrides)  # overrides take precedence
+        eff_map.update({k: (v if v is not None else 1.0) for k, v in overrides.items()})
         self.efficiency = ids.map(eff_map)
 
         self.kostnadsgrunn = kostnadsgrunn
-        self.dea_norm = kostnadsgrunn * self.efficiency
-        self.tillegg = (rab17b / rab17b.sum()) * (
-            kostnadsgrunn.sum() - np.nansum(self.dea_norm)
-        )
+        self.dea_norm = (kostnadsgrunn * self.efficiency).fillna(0)
+
+        # Tillegg is distributed ONLY within the main model pool.
+        # Override companies (both "alternativ benchmarkingmodell" with numeric
+        # efficiency and "evalueres ikke" with None) are excluded from the pool.
+        is_pool = ~ids.isin(set(overrides.keys()))
+        pool_kg   = kostnadsgrunn.loc[is_pool].sum()
+        pool_norm = self.dea_norm.loc[is_pool].sum()
+        pool_rab  = rab17b.loc[is_pool].sum()
+        pool_size = pool_kg - pool_norm
+
+        self.tillegg = pd.Series(0.0, index=kostnadsgrunn.index)
+        if pool_rab > 0:
+            self.tillegg.loc[is_pool] = (rab17b.loc[is_pool] / pool_rab) * pool_size
+
         self.kalibrert = self.dea_norm + self.tillegg
-        self.kalibrert_resultat = self.kalibrert / kostnadsgrunn
+        self.kalibrert_resultat = self.kalibrert / kostnadsgrunn.replace(0, np.nan)
 
     def to_dataframe(self, ids: pd.Series, comp: pd.Series) -> pd.DataFrame:
         return pd.DataFrame({

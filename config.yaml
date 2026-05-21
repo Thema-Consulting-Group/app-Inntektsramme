@@ -5,7 +5,7 @@ data_resultater_ld_path: ''
 data_resultater_rd_path: ''
 forutsetninger:
   rho: 0.7
-  referanserente: null
+  referanserente: 7.21
   finansparametere:
     gjeldsandel: 0.6
     noytral_realrente: 1.5
