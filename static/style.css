@@ -147,6 +147,39 @@ select.input {
   border-bottom: 1px solid #e2e8f0;
   white-space: nowrap;
 }
+.data-table th .tech-name {
+  display: block;
+  font-size: .6rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #94a3b8;
+  font-family: ui-monospace, monospace;
+  margin-top: 1px;
+}
+/* Editable cell inputs – match td dimensions exactly */
+.data-table td.csv-cell {
+  padding: 0;
+}
+.data-table td.csv-cell input {
+  display: block;
+  width: 100%;
+  padding: .4rem .75rem;
+  font-size: .8125rem;
+  font-family: inherit;
+  line-height: 1.5;
+  background: transparent;
+  border: none;
+  outline: none;
+  text-align: right;
+  color: #334155;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.data-table td.csv-cell input:focus {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
 .data-table th:hover { color: #2563eb; }
 .data-table td {
   padding: .4rem .75rem;

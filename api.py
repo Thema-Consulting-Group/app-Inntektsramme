@@ -62,10 +62,13 @@ def _latest_run_paths(run_name: str | None = None) -> tuple[Path, Path, Path] | 
         return None
 
     if run_name:
-        # Validate: only allow Run_YYYY-MM-DD_HH-MM-SS style names (prevents path traversal)
-        if not re.match(r'^Run_[\d\-_]+$', run_name):
+        # Prevent path traversal: no slashes, backslashes, or ".." segments
+        if re.search(r'[\\/]|\.\.' , run_name) or not run_name.strip():
             return None
         d = results_dir / run_name
+        # Ensure resolved path is still inside results_dir
+        if not str(d.resolve()).startswith(str(results_dir.resolve())):
+            return None
         if not d.is_dir():
             return None
         irir = next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
@@ -73,9 +76,14 @@ def _latest_run_paths(run_name: str | None = None) -> tuple[Path, Path, Path] | 
         rd   = next(d.glob("Data_Resultater_RD*"), None)
         return (irir, ld, rd) if (irir and ld and rd) else None
 
+    # Auto-latest: prefer dated Run_ dirs (sorted desc), then any other dir
+    def _sort_key(p: Path):
+        is_dated = bool(re.match(r'^Run_\d', p.name))
+        return (0 if is_dated else 1, p.name)
+
     run_dirs = sorted(
-        [d for d in results_dir.iterdir() if d.is_dir() and d.name.startswith("Run_")],
-        reverse=True,
+        [d for d in results_dir.iterdir() if d.is_dir() and not d.name.startswith('.')],
+        key=_sort_key,
     )
     for d in run_dirs:
         irir = next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
@@ -126,9 +134,10 @@ def get_runs():
     if not results_dir.is_dir():
         return {"runs": []}
     runs = []
-    for d in sorted(results_dir.iterdir(), reverse=True):
-        if not (d.is_dir() and d.name.startswith("Run_")):
-            continue
+    def _sort_key(p: Path):
+        is_dated = bool(re.match(r'^Run_\d', p.name))
+        return (0 if is_dated else 1, p.name if is_dated else p.name.lower())
+    for d in sorted([d for d in results_dir.iterdir() if d.is_dir() and not d.name.startswith('.')], key=_sort_key, reverse=False):
         files = [{"name": f.name, "size": f.stat().st_size} for f in sorted(d.iterdir()) if f.is_file()]
         complete = bool(
             next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
@@ -136,7 +145,77 @@ def get_runs():
             and next(d.glob("Data_Resultater_RD*"), None)
         )
         runs.append({"name": d.name, "files": files, "complete": complete})
-    return {"runs": runs}
+    # Dated runs are already sorted asc; reverse them so newest first, keep named runs at bottom
+    dated = [r for r in runs if re.match(r'^Run_\d', r["name"])]
+    named = [r for r in runs if not re.match(r'^Run_\d', r["name"])]
+    return {"runs": list(reversed(dated)) + named}
+
+
+# ---------------------------------------------------------------------------
+# /api/run-csv  — read / write editable CSVs inside a run folder
+# ---------------------------------------------------------------------------
+
+class CsvSaveRequest(BaseModel):
+    rows: list[dict]
+
+
+def _run_dir_from_name(run_name: str | None) -> Path | None:
+    paths = _latest_run_paths(run_name)
+    return paths[0].parent if paths else None
+
+
+def _safe_csv_filename(filename: str) -> bool:
+    """Allow only plain .csv filenames with no path components."""
+    return (
+        filename.endswith(".csv")
+        and not re.search(r"[/\\]|\.\.", filename)
+        and Path(filename).name == filename
+    )
+
+
+@app.get("/api/run-csv/files")
+def list_run_csv_files(run_name: str | None = Query(None)):
+    """Return all .csv files present in the run folder."""
+    run_dir = _run_dir_from_name(run_name)
+    if run_dir is None:
+        return {"files": [], "run_dir": ""}
+    files = [
+        {"filename": f.name, "size": f.stat().st_size}
+        for f in sorted(run_dir.glob("*.csv"))
+    ]
+    return {"files": files, "run_dir": run_dir.name}
+
+
+@app.get("/api/run-csv")
+def get_run_csv(filename: str = Query(...), run_name: str | None = Query(None)):
+    if not _safe_csv_filename(filename):
+        raise HTTPException(400, "Invalid filename")
+    run_dir = _run_dir_from_name(run_name)
+    if run_dir is None:
+        raise HTTPException(404, "Run not found")
+    csv_path = run_dir / filename
+    if not csv_path.exists():
+        raise HTTPException(404, f"{filename} not found in this run")
+    df = pd.read_csv(csv_path, index_col=0)
+    rows = [{k: (None if (isinstance(v, float) and math.isnan(v)) else v)
+             for k, v in row.items()}
+            for row in df.to_dict(orient="records")]
+    return {"columns": list(df.columns), "rows": rows, "run_dir": run_dir.name}
+
+
+@app.put("/api/run-csv")
+def put_run_csv(filename: str = Query(...), run_name: str = Query(...), body: CsvSaveRequest = ...):
+    if not _safe_csv_filename(filename):
+        raise HTTPException(400, "Invalid filename")
+    run_dir = _run_dir_from_name(run_name)
+    if run_dir is None:
+        raise HTTPException(404, "Run not found")
+    csv_path = run_dir / filename
+    if not csv_path.exists():
+        raise HTTPException(404, f"{filename} not found in this run")
+    df = pd.DataFrame(body.rows)
+    df.to_csv(csv_path)
+    return {"ok": True, "rows": len(df), "path": str(csv_path)}
 
 
 # ---------------------------------------------------------------------------

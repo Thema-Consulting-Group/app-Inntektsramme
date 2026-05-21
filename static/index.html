@@ -125,7 +125,7 @@
           <div class="flex flex-wrap items-end gap-4">
             <div class="flex-1 min-w-[260px]">
               <label class="label">Aktiv kjøring</label>
-              <select x-model="selectedRun" class="input" @change="loadIrTable(); loadDeaCompanies(); loadProgCompanies()">
+              <select x-model="selectedRun" class="input" @change="loadIrTable(); loadDeaCompanies(); loadProgCompanies(); loadRunCsvFiles()">
                 <option value="">— Siste kjøring (automatisk) —</option>
                 <template x-for="r in availableRuns" :key="r.name">
                   <option :value="r.name" :disabled="!r.complete" x-text="r.name + (r.complete ? '' : ' (ufullstendig)')"></option>
@@ -196,6 +196,73 @@
         <!-- Empty state -->
         <div x-show="!irTable.length && !loading" class="empty-state">
           <p class="text-slate-500 text-sm">Klikk <strong>Oppdater inntektsramme</strong> for å laste resultater.</p>
+        </div>
+
+        <!-- CSV editor -->
+        <div class="card p-4" x-init="loadRunCsvFiles()">
+          <div class="flex flex-wrap items-center gap-3 mb-3">
+            <h3 class="text-sm font-semibold flex-1">Rediger CSV-filer</h3>
+            <select x-model="csvEdit.file" class="input w-auto text-xs" @change="csvEdit.rows = []; csvEdit.dirty = false">
+              <option value="" disabled>— velg fil —</option>
+              <template x-for="f in csvEdit.availableFiles" :key="f.filename">
+                <option :value="f.filename" x-text="f.filename"></option>
+              </template>
+            </select>
+            <button @click="loadRunCsvFiles()" class="btn-secondary text-xs" title="Oppdater filliste">↺</button>
+            <button @click="loadRunCsv()" :disabled="csvEdit.loading || !csvEdit.file" class="btn-secondary text-xs">
+              <span x-show="!csvEdit.loading">Last inn</span>
+              <span x-show="csvEdit.loading">Laster…</span>
+            </button>
+            <button @click="saveRunCsv()"
+                    :disabled="csvEdit.saving || !csvEdit.dirty || !csvEdit.runName"
+                    class="btn-primary text-xs"
+                    :class="csvEdit.dirty ? '' : 'opacity-50 cursor-not-allowed'">
+              <span x-show="!csvEdit.saving">💾 Lagre</span>
+              <span x-show="csvEdit.saving">Lagrer…</span>
+            </button>
+          </div>
+          <p x-show="csvEdit.runName" class="text-xs text-slate-400 mb-2"
+             x-text="'Kjøring: ' + csvEdit.runName + (csvEdit.dirty ? ' · Ulagrede endringer' : ' · Ingen endringer')"></p>
+          <div x-show="csvEdit.rows.length" class="overflow-x-auto max-h-80 overflow-y-auto">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <template x-if="csvEdit.columns.includes('id')">
+                    <th>Selskap</th>
+                  </template>
+                  <template x-for="col in csvEdit.columns" :key="col">
+                    <th :title="col">
+                      <span x-text="csvColLabel(col)"></span>
+                      <span class="tech-name" x-text="col"></span>
+                    </th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(row, ri) in csvEdit.rows" :key="ri">
+                  <tr>
+                    <template x-if="csvEdit.columns.includes('id')">
+                      <td x-text="csvCompanyName(row.id) ?? '—'"></td>
+                    </template>
+                    <template x-for="col in csvEdit.columns" :key="col">
+                      <td class="csv-cell">
+                        <input type="text"
+                               :value="csvEdit.focusCell === ri + '_' + col
+                                 ? (csvEdit.rows[ri][col] ?? '')
+                                 : (typeof csvEdit.rows[ri][col] === 'number'
+                                     ? csvEdit.rows[ri][col].toLocaleString('no-NO', {maximumFractionDigits: 4})
+                                     : (csvEdit.rows[ri][col] ?? ''))"
+                               @focus="csvEdit.focusCell = ri + '_' + col; $event.target.value = csvEdit.rows[ri][col] ?? ''"
+                               @blur="csvEdit.focusCell = ''"
+                               @change="csvEdit.rows[ri][col] = $event.target.value === '' ? null : isNaN(+$event.target.value) ? $event.target.value : +$event.target.value; csvEdit.dirty = true" />
+                      </td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <p x-show="!csvEdit.rows.length" class="text-xs text-slate-400 mt-1">Velg fil og klikk <strong>Last inn</strong>.</p>
         </div>
 
       </section>

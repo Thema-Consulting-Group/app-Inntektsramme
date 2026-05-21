@@ -257,10 +257,16 @@ class CostCalculator:
         return self.d.rd_nl * self.d.kraftpris
 
     @property
+    def rd_cga_wage_adj(self) -> pd.Series:
+        """Utrednings- og koordineringsansvar, wage-adjusted (same ratio as DV)."""
+        return self.d.rd_cga * self.c.wage_ratio
+
+    @property
     def rd_kostnadsgrunnlag(self) -> pd.Series:
         return (
             self.rd_dv_wage
-            + self.d.rd_kile * self.c.wage_ratio
+            + self.d.rd_kile * self.c.kpi_ratio
+            + self.rd_cga_wage_adj
             + self.d.rd_avs
             + self.d.rd_akg * self.c.referanserente
         )
@@ -281,7 +287,7 @@ class CostCalculator:
         return (
             self.dv_wage_adj + self.avs
             + self.ld_nettap + self.rd_nettap
-            + self.kile_kpi + self.d.rd_cga
+            + self.kile_kpi + self.rd_cga_wage_adj
         )
 
     @property
@@ -384,7 +390,8 @@ class RevenueCapCalculator:
         rho = self.cfg.rho
         kg = self.costs.kostnadsgrunnlag.fillna(0)
         dea_ld = self.dea_ld.kalibrert.fillna(0)
-        dea_rd = self.dea_rd.kalibrert.fillna(0)
+        # K*_RD includes rd_nettap as a pass-through (same as in build_etl_dataframe)
+        dea_rd = (self.dea_rd.kalibrert + self.costs.rd_nettap).fillna(0)
         return (1 - rho) * kg + (dea_ld + dea_rd) * rho
 
     # ------------------------------------------------------------------
@@ -523,7 +530,7 @@ class RevenueCapCalculator:
             "Nettaps- kostnad i RD": c.rd_nettap,
             "KILE": c.kile,
             "KPI-justert KILE": c.kile_kpi,
-            "Årslønn-justerte kostnader knyttet til utred.ansvar og KDS": d.rd_cga,
+            "Årslønn-justerte kostnader knyttet til utred.ansvar og KDS": c.rd_cga_wage_adj,
             "Sum kostnader": c.sum_kostnader,
             "Kostnadsgrunnlag": c.kostnadsgrunnlag,
             "K* lok distribusjonsnett": k_norm_ld,

@@ -10,6 +10,93 @@ const RED_L   = '#fca5a5';
 const EMERALD = '#10b981';
 const SLATE   = '#94a3b8';
 
+// ── CSV column label mappings ────────────────
+const CSV_COL_LABELS = {
+  // identifiers
+  id:                'ID',
+  orgn:              'Organisasjonsnr',
+  y:                 'År',
+  comp:              'Selskap',
+  // LD FHA outputs
+  fha_ld_TOTXDEA:    'LD Total kostnad ekskl. nettap (1000 kr)',
+  fha_ld_sub:        'LD Abonnenter',
+  fha_ld_hv:         'LD Høyspentnett (km)',
+  fha_ld_ss:         'LD Lavspentnett (km)',
+  // RD FHA outputs
+  fha_rd_TOTXDEA:    'RD Total kostnad ekskl. nettap (1000 kr)',
+  'fha_rd_wv.ol':    'RD Vekt luftlinjer',
+  'fha_rd_wv.uc':    'RD Vekt jordkabler',
+  'fha_rd_wv.sc':    'RD Vekt sjøkabler',
+  'fha_rd_wv.ss':    'RD Vekt lavspentnett',
+  // LD grunnlagsdata
+  ld_OPEXxS:         'LD OPEX ekskl. lønn (1000 kr)',
+  ld_sal:            'LD Lønnskost (1000 kr)',
+  'ld_sal.cap':      'LD Aktivert lønn (1000 kr)',
+  ld_pens:           'LD Pensjonskost (1000 kr)',
+  'ld_pens.eq':      'LD Pensjon egenkapital (1000 kr)',
+  ld_impl:           'LD Pensjon impl. (1000 kr)',
+  ld_391:            'LD §391 (1000 kr)',
+  ld_elhub:          'LD Elhub (1000 kr)',
+  ld_usla:           'LD Utestående saldo (1000 kr)',
+  'ld_bv.sf':        'LD BV selvfinansiert (1000 kr)',
+  'ld_dep.sf':       'LD AVS selvfinansiert (1000 kr)',
+  'ld_bv.gf':        'LD BV gjennomfinansiert (1000 kr)',
+  'ld_dep.gf':       'LD AVS gjennomfinansiert (1000 kr)',
+  ld_cens:           'LD Nettleie (1000 kr)',
+  ld_nl:             'LD Nettap (1000 kr)',
+  ld_sub:            'LD Abonnenter',
+  ld_hvoh:           'LD Høyspentnett luftlinjer (km)',
+  ld_hvug:           'LD Høyspentnett jordkabler (km)',
+  ld_hvsc:           'LD Høyspentnett sjøkabler (km)',
+  ld_hv:             'LD Høyspentnett totalt (km)',
+  ld_ss:             'LD Lavspentnett (km)',
+  // RD grunnlagsdata
+  rd_OPEXxS:         'RD OPEX ekskl. lønn (1000 kr)',
+  rd_sal:            'RD Lønnskost (1000 kr)',
+  'rd_sal.cap':      'RD Aktivert lønn (1000 kr)',
+  rd_pens:           'RD Pensjonskost (1000 kr)',
+  'rd_pens.eq':      'RD Pensjon egenkapital (1000 kr)',
+  rd_impl:           'RD Pensjon impl. (1000 kr)',
+  rd_391:            'RD §391 (1000 kr)',
+  rd_elhub:          'RD Elhub (1000 kr)',
+  rd_cga:            'RD CGA (1000 kr)',
+  rd_cga_tidl:       'RD CGA tidligere år (1000 kr)',
+  rd_coord:          'RD Koordineringskost (1000 kr)',
+  rd_usla:           'RD Utestående saldo (1000 kr)',
+  'rd_bv.sf':        'RD BV selvfinansiert (1000 kr)',
+  'rd_dep.sf':       'RD AVS selvfinansiert (1000 kr)',
+  'rd_bv.gf':        'RD BV gjennomfinansiert (1000 kr)',
+  'rd_dep.gf':       'RD AVS gjennomfinansiert (1000 kr)',
+  rd_cens:           'RD Nettleie (1000 kr)',
+  rd_nl:             'RD Nettap (1000 kr)',
+  'rd_wv.ol':        'RD Vekt luftlinjer',
+  'rd_wv.uc':        'RD Vekt jordkabler',
+  'rd_wv.sc':        'RD Vekt sjøkabler',
+  'rd_wv.ss':        'RD Vekt lavspentnett',
+  // totaler
+  t_OPEXxS:         'Totalt OPEX ekskl. lønn (1000 kr)',
+  t_sal:             'Totalt lønn (1000 kr)',
+  t_cens:            'Totalt nettleie (1000 kr)',
+  't_bv.sf':         'Totalt BV selvfinansiert (1000 kr)',
+  't_dep.sf':        'Totalt AVS selvfinansiert (1000 kr)',
+  // z-variabler
+  ldz_salt:          'Z: Saltholdighet',
+  ldz_coast_wind:    'Z: Kystv ind',
+  ldz_water:         'Z: Vassdrag',
+  ldz_incline:       'Z: Terrenghelning',
+  ldz_prod:          'Z: Produksjon',
+  ldz_snow_trees:    'Z: Snø/tre',
+  ldz_forest_broadleaf: 'Z: Løvskog',
+  ldz_snowdrift:     'Z: Snøfokk',
+  ldz_snow_400:      'Z: Snø 400m',
+  ldz_wind_99:       'Z: Vind 99-pst',
+  ldz_frosthours:    'Z: Frosttimer',
+  ldz_forest_mixed_conf: 'Z: Blandingsskog',
+  ldz_mgc:           'Z: MGC',
+  'ap.t_2':          'Avkastningsparameter t-2',
+  'pnl.rc':          'PnL referansekost',
+};
+
 // ── Plotly base layout defaults ──────────────
 const BASE_LAYOUT = {
   font:   { family: 'Inter, sans-serif', size: 12, color: '#475569' },
@@ -64,6 +151,19 @@ function dashboard() {
     /* ── Tab 3: Kostnader ────────────────── */
     kost: { orgn: '', table: [] },
     kostColumns: [],
+
+    /* ── CSV editor (RME tab) ────────────── */
+    csvEdit: {
+      loading:        false,
+      saving:         false,
+      file:           '',
+      availableFiles: [],
+      columns:        [],
+      rows:           [],
+      dirty:          false,
+      runName:        '',
+      focusCell:      '',
+    },
 
     /* ── Tab 5: Task elasticities ──────────── */
     elas: {
@@ -467,6 +567,64 @@ function dashboard() {
     },
 
     // ─── Tab 3 ───────────────────────────────
+
+    // ── CSV editor ───────────────────────────
+    async loadRunCsvFiles() {
+      const run = this.selectedRun || '';
+      const qs  = run ? `?run_name=${encodeURIComponent(run)}` : '';
+      try {
+        const data = await this.api('GET', `/api/run-csv/files${qs}`);
+        this.csvEdit.availableFiles = data.files ?? [];
+        // Auto-select first file if none chosen or previous choice gone
+        const names = this.csvEdit.availableFiles.map(f => f.filename);
+        if (!names.includes(this.csvEdit.file)) {
+          this.csvEdit.file = names[0] ?? '';
+        }
+      } catch(e) { /* silent */ }
+    },
+
+    async loadRunCsv() {
+      if (!this.csvEdit.file) return;
+      this.csvEdit.loading = true;
+      this.csvEdit.dirty   = false;
+      const run = this.selectedRun || '';
+      const qs  = `?filename=${encodeURIComponent(this.csvEdit.file)}` + (run ? `&run_name=${encodeURIComponent(run)}` : '');
+      try {
+        const data = await this.api('GET', `/api/run-csv${qs}`);
+        this.csvEdit.columns = data.columns;
+        this.csvEdit.rows    = data.rows;
+        this.csvEdit.runName = data.run_dir;
+      } catch(e) {
+        this.globalError = e.message;
+      } finally {
+        this.csvEdit.loading = false;
+      }
+    },
+
+    async saveRunCsv() {
+      if (!this.csvEdit.runName) return;
+      this.csvEdit.saving = true;
+      const qs = `?filename=${encodeURIComponent(this.csvEdit.file)}&run_name=${encodeURIComponent(this.csvEdit.runName)}`;
+      try {
+        await this.api('PUT', `/api/run-csv${qs}`, { rows: this.csvEdit.rows });
+        this.csvEdit.dirty = false;
+        this.showToast('CSV lagret ✓');
+      } catch(e) {
+        this.globalError = e.message;
+      } finally {
+        this.csvEdit.saving = false;
+      }
+    },
+
+    csvColLabel(col) {
+      return CSV_COL_LABELS[col] ?? col;
+    },
+
+    csvCompanyName(id) {
+      const all = [...(this.progCompanies || []), ...(this.deaCompanies || [])];
+      const match = all.find(c => String(c.id) === String(id));
+      return match ? match.name : null;
+    },
 
     async loadKostnader() {
       this.loading = true;
