@@ -79,6 +79,21 @@
     <!-- Top bar -->
     <header class="shrink-0 flex items-center gap-4 px-6 py-3 bg-white border-b border-slate-200 shadow-sm">
       <h1 class="text-base font-semibold text-slate-800" x-text="currentTabLabel"></h1>
+
+      <!-- Run picker pill — visible only in RME tab -->
+      <div x-show="tab === 'rme'" x-cloak
+           class="flex items-center gap-0.5 bg-slate-50 border border-slate-200 rounded-full px-1 py-0.5 mx-auto">
+        <button @click="stepRun(1)"
+                :disabled="availableRuns.filter(r=>r.complete).length === 0 || selectedRun === availableRuns.filter(r=>r.complete).at(-1)?.name"
+                class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded-full hover:bg-white transition-all text-sm font-semibold select-none">‹</button>
+        <span class="text-xs font-semibold px-2.5 tabular-nums w-[160px] text-center inline-block"
+              :class="selectedRun ? 'text-amber-700' : 'text-slate-400 italic'"
+              x-text="activeRunFormatted"></span>
+        <button @click="stepRun(-1)"
+                :disabled="!selectedRun"
+                class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded-full hover:bg-white transition-all text-sm font-semibold select-none">›</button>
+      </div>
+
       <div class="ml-auto flex items-center gap-3">
         <!-- Global error badge -->
         <div x-show="globalError"
@@ -101,289 +116,261 @@
 
       <!-- ══════════ TAB 1: RME MODELL ══════════ -->
       <section x-show="tab === 'rme'" x-cloak>
+        <div class="grid grid-cols-[272px_1fr] gap-6 items-start">
 
-        <!-- Input files + grunnlagsdata — single setup card -->
-        <div class="card p-0 overflow-hidden">
+          <!-- ── LEFT: Input sidebar ── -->
+          <div class="card p-0 overflow-hidden self-start sticky top-0">
 
-          <!-- Card header -->
-          <div class="px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-4">
-            <div>
-              <p class="text-sm font-semibold text-slate-800">Forbered kjøring</p>
-              <p class="text-xs text-slate-400 mt-0.5">Dra en fil over en rad, eller klikk «Velg». Endringer gjelder neste kjøring.</p>
+            <!-- Sidebar header -->
+            <div class="px-4 py-3 border-b border-slate-100">
+              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Inndata for neste kjøring</p>
+              <p class="text-xs text-slate-500 mt-0.5"
+                 x-text="inputFiles.filter(f=>f.override).length + (grunnlag.active ? 1 : 0) === 0
+                   ? '3 standard filer · ingen endringer'
+                   : (inputFiles.filter(f=>f.override).length + (grunnlag.active ? 1 : 0)) + ' fil(er) endret fra standard'">
+              </p>
             </div>
-            <div x-show="inputFiles.some(f => f.override) || grunnlag.active"
-                 class="text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 rounded px-2 py-1 shrink-0 mt-0.5">
-              Egne filer aktive
-            </div>
-          </div>
 
-          <!-- BaseData files -->
-          <div class="px-4 pt-3 pb-1">
-            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2">Inndatafiler (Excel)</p>
-            <template x-for="f in inputFiles" :key="f.key">
-              <div
-                class="group flex items-center gap-3 rounded-lg px-3 py-2.5 mb-1.5 border transition-all cursor-pointer"
-                :class="f.override
-                  ? 'border-emerald-200 bg-emerald-50'
-                  : f.dragOver
-                    ? 'border-blue-400 bg-blue-50 border-dashed scale-[1.01]'
-                    : 'border-transparent bg-slate-50 hover:bg-slate-100 hover:border-slate-200'"
-                @dragover.prevent="f.dragOver = true"
-                @dragleave.prevent="f.dragOver = false"
-                @drop.prevent="uploadInputFile(f.key, $event)">
+            <!-- Excel file list -->
+            <div class="px-3 py-2 space-y-0.5">
+              <template x-for="f in inputFiles" :key="f.key">
+                <label
+                  class="group flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer transition-colors"
+                  :class="f.override
+                    ? 'bg-amber-50 hover:bg-amber-100'
+                    : f.dragOver
+                      ? 'bg-blue-50'
+                      : 'hover:bg-slate-50'"
+                  @dragover.prevent="f.dragOver = true"
+                  @dragleave.prevent="f.dragOver = false"
+                  @drop.prevent="uploadInputFile(f.key, $event)">
+                  <input type="file" :accept="f.accept" class="sr-only" @change="uploadInputFile(f.key, $event)">
 
-                <!-- File-type chip -->
-                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0"
-                      :class="f.override ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-200 text-slate-500'">XLSX</span>
+                  <span class="text-[9px] font-bold px-1 py-0.5 rounded shrink-0 bg-slate-100 text-slate-400">XLS</span>
 
-                <!-- Info -->
-                <div class="flex-1 min-w-0">
-                  <span class="text-xs font-medium text-slate-700" x-text="f.label"></span>
-                  <span class="mx-1.5 text-slate-300">·</span>
-                  <span class="text-[11px] truncate"
-                        :class="f.override ? 'text-emerald-600 font-medium' : 'text-slate-400'"
-                        x-text="f.override ? f.override : f.defaultName"></span>
-                </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="text-xs font-medium text-slate-700" x-text="f.label"></span>
+                      <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-tight"
+                            :class="f.override ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'"
+                            x-text="f.override ? 'endret' : 'standard'"></span>
+                    </div>
+                    <p class="text-[10px] truncate mt-0.5"
+                       :class="f.override ? 'text-amber-600 font-medium' : 'text-slate-400'"
+                       x-text="f.override ? f.override : f.defaultName"></p>
+                  </div>
 
-                <!-- Drag hint (shown on hover when no override) -->
-                <span x-show="!f.override && !f.uploading && !f.dragOver"
-                      class="text-[10px] text-slate-300 group-hover:text-slate-400 shrink-0 hidden group-hover:inline">
-                  dra hit ↓
-                </span>
-                <span x-show="f.dragOver" class="text-[11px] text-blue-500 font-medium shrink-0">Slipp …</span>
-
-                <!-- Spinner -->
-                <span x-show="f.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin shrink-0"></span>
-
-                <!-- Actions -->
-                <template x-if="!f.uploading && !f.override">
-                  <label class="btn-xs cursor-pointer shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <input type="file" :accept="f.accept" class="sr-only" @change="uploadInputFile(f.key, $event)">
-                    Velg
-                  </label>
-                </template>
-                <template x-if="!f.uploading && f.override">
-                  <button @click.stop="clearInputFile(f.key)"
-                          class="text-[11px] text-slate-400 hover:text-red-500 shrink-0 transition-colors">
-                    Fjern
-                  </button>
-                </template>
-              </div>
-            </template>
-          </div>
-
-          <!-- Divider + grunnlagsdata -->
-          <div class="px-4 pt-2 pb-3 border-t border-slate-100 mt-1">
-            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2">Verdijusteringer (CSV) — engangskjøring</p>
-            <div
-              class="group flex items-center gap-3 rounded-lg px-3 py-2.5 border transition-all cursor-pointer"
-              :class="grunnlag.active
-                ? 'border-emerald-200 bg-emerald-50'
-                : grunnlag.dragOver
-                  ? 'border-blue-400 bg-blue-50 border-dashed scale-[1.01]'
-                  : 'border-transparent bg-slate-50 hover:bg-slate-100 hover:border-slate-200'"
-              @dragover.prevent="grunnlag.dragOver = true"
-              @dragleave.prevent="grunnlag.dragOver = false"
-              @drop.prevent="uploadGrunnlagsdata($event)">
-
-              <span class="text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0"
-                    :class="grunnlag.active ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-200 text-slate-500'">CSV</span>
-
-              <div class="flex-1 min-w-0">
-                <span class="text-xs font-medium text-slate-700">Grunnlagsdata (verdijusteringer)</span>
-                <span class="mx-1.5 text-slate-300">·</span>
-                <span class="text-[11px] truncate"
-                      :class="grunnlag.active ? 'text-emerald-600 font-medium' : 'text-slate-400'"
-                      x-text="grunnlag.active ? grunnlag.fileName : 'Ingen – bruker siste R-kjøring'"></span>
-              </div>
-
-              <span x-show="!grunnlag.active && !grunnlag.uploading && !grunnlag.dragOver"
-                    class="text-[10px] text-slate-300 group-hover:text-slate-400 shrink-0 hidden group-hover:inline">
-                dra hit ↓
-              </span>
-              <span x-show="grunnlag.dragOver" class="text-[11px] text-blue-500 font-medium shrink-0">Slipp …</span>
-              <span x-show="grunnlag.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin shrink-0"></span>
-
-              <template x-if="!grunnlag.uploading && !grunnlag.active">
-                <label class="btn-xs cursor-pointer shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <input type="file" accept=".csv" class="sr-only" @change="uploadGrunnlagsdata($event)">
-                  Velg
+                  <span x-show="f.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin shrink-0"></span>
+                  <button x-show="f.override && !f.uploading"
+                          @click.prevent.stop="clearInputFile(f.key)"
+                          class="text-slate-300 hover:text-red-500 shrink-0 transition-colors text-sm leading-none" title="Fjern overstyring">✕</button>
+                  <span x-show="!f.override && !f.uploading && !f.dragOver"
+                        class="text-slate-300 group-hover:text-slate-500 shrink-0 text-sm leading-none transition-colors" title="Klikk for å bytte">↺</span>
+                  <span x-show="f.dragOver && !f.uploading"
+                        class="text-[10px] text-blue-500 font-medium shrink-0">Slipp</span>
                 </label>
               </template>
-              <template x-if="!grunnlag.uploading && grunnlag.active">
-                <button @click.stop="clearGrunnlagsdata()"
-                        class="text-[11px] text-slate-400 hover:text-red-500 shrink-0 transition-colors">
-                  Fjern
+            </div>
+
+            <!-- Grunnlagsdata -->
+            <div class="border-t border-slate-100 mx-3 mt-1"></div>
+            <div class="px-3 py-2">
+              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-2">Verdijusteringer (CSV)</p>
+              <label
+                class="group flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer transition-colors"
+                :class="grunnlag.active
+                  ? 'bg-emerald-50 hover:bg-emerald-100'
+                  : grunnlag.dragOver
+                    ? 'bg-blue-50'
+                    : 'hover:bg-slate-50'"
+                @dragover.prevent="grunnlag.dragOver = true"
+                @dragleave.prevent="grunnlag.dragOver = false"
+                @drop.prevent="uploadGrunnlagsdata($event)">
+                <input type="file" accept=".csv" class="sr-only" @change="uploadGrunnlagsdata($event)">
+
+                <span class="text-[9px] font-bold px-1 py-0.5 rounded shrink-0 bg-slate-100 text-slate-400">CSV</span>
+
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="text-xs font-medium text-slate-700">Grunnlagsdata</span>
+                    <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-tight"
+                          :class="grunnlag.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'"
+                          x-text="grunnlag.active ? 'aktiv · engangskjøring' : 'siste R-kjøring'"></span>
+                  </div>
+                  <p class="text-[10px] truncate mt-0.5"
+                     :class="grunnlag.active ? 'text-emerald-600 font-medium' : 'text-slate-400'"
+                     x-text="grunnlag.active ? grunnlag.fileName : '—'"></p>
+                </div>
+
+                <span x-show="grunnlag.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin shrink-0"></span>
+                <button x-show="grunnlag.active && !grunnlag.uploading"
+                        @click.prevent.stop="clearGrunnlagsdata()"
+                        class="text-slate-300 hover:text-red-500 shrink-0 transition-colors text-sm leading-none" title="Fjern">✕</button>
+                <span x-show="!grunnlag.active && !grunnlag.uploading && !grunnlag.dragOver"
+                      class="text-slate-300 group-hover:text-slate-500 shrink-0 text-sm leading-none transition-colors">↺</span>
+                <span x-show="grunnlag.dragOver && !grunnlag.uploading"
+                      class="text-[10px] text-blue-500 font-medium shrink-0">Slipp</span>
+              </label>
+            </div>
+
+            <!-- Run button -->
+            <div class="px-3 pb-4 pt-2 border-t border-slate-100">
+              <button @click="runPipeline()" :disabled="pipelineRunning" class="btn-primary w-full">
+                <span x-show="!pipelineRunning">Start ny kjøring · med disse inndataene</span>
+                <span x-show="pipelineRunning" class="flex items-center justify-center gap-2">
+                  <span class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  Kjører …
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ── RIGHT: Results panel ── -->
+          <div class="space-y-5 min-w-0">
+
+            <!-- Pipeline log -->
+            <div x-show="pipelineLogs.length > 0"
+                 class="card bg-slate-900 text-slate-200 font-mono text-xs p-4 max-h-48 overflow-y-auto">
+              <template x-for="(line, i) in pipelineLogs" :key="i">
+                <div x-text="line"></div>
+              </template>
+            </div>
+
+            <!-- Results header -->
+            <div x-show="irMeta" class="flex items-baseline justify-between gap-4">
+              <div>
+                <h2 class="text-base font-semibold text-slate-800">Inntektsramme 2026</h2>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  <span x-text="activeRunFormatted"></span>
+                  <span x-show="irMeta?.n_companies"> · <span x-text="irMeta?.n_companies"></span> selskaper</span>
+                  · oppdatert automatisk
+                </p>
+              </div>
+              <button @click="loadIrTable()" :disabled="loading"
+                      class="text-xs text-slate-400 hover:text-slate-600 disabled:opacity-40 shrink-0 transition-colors"
+                      title="Oppdater">↺ oppdater</button>
+            </div>
+
+            <!-- Metrics -->
+            <div x-show="irMeta" class="grid grid-cols-3 gap-4">
+              <div class="metric-card">
+                <p class="metric-label">Antall selskaper</p>
+                <p class="metric-value" x-text="irMeta?.n_companies ?? '—'"></p>
+              </div>
+              <div class="metric-card">
+                <p class="metric-label">Sum kostnadsgrunnlag (1000 kr)</p>
+                <p class="metric-value" x-text="fmt(irMeta?.sum_kostnadsgrunnlag)"></p>
+              </div>
+              <div class="metric-card">
+                <p class="metric-label">Sum IR etter kalibrering (1000 kr)</p>
+                <p class="metric-value" x-text="fmt(irMeta?.sum_ir)"></p>
+              </div>
+            </div>
+
+            <!-- Table -->
+            <div x-show="irTable.length > 0" class="card overflow-hidden p-0">
+              <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                <span class="text-sm font-semibold">Alle selskaper</span>
+                <button @click="downloadCsv(irTable, 'ir_tabell')" class="btn-xs">↓ CSV</button>
+              </div>
+              <div class="overflow-x-auto max-h-[520px] overflow-y-auto">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <template x-for="col in irColumns" :key="col">
+                        <th x-text="col" @click="sortTable('irTable', col)" class="cursor-pointer select-none"></th>
+                      </template>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="(row, ri) in irTable" :key="ri">
+                      <tr>
+                        <template x-for="col in irColumns" :key="col">
+                          <td x-text="fmtCell(row[col])"></td>
+                        </template>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Empty state -->
+            <div x-show="!irTable.length && !loading" class="empty-state">
+              <p class="text-slate-400 text-sm">Kjør modellen for å se resultater.</p>
+            </div>
+
+            <!-- CSV editor -->
+            <div class="card p-4" x-init="loadRunCsvFiles()">
+              <div class="flex flex-wrap items-center gap-3 mb-3">
+                <h3 class="text-sm font-semibold flex-1">Rediger CSV-filer</h3>
+                <select x-model="csvEdit.file" class="input w-auto text-xs" @change="csvEdit.rows = []; csvEdit.dirty = false">
+                  <option value="" disabled>— velg fil —</option>
+                  <template x-for="f in csvEdit.availableFiles" :key="f.filename">
+                    <option :value="f.filename" x-text="f.filename"></option>
+                  </template>
+                </select>
+                <button @click="loadRunCsvFiles()" class="btn-secondary text-xs" title="Oppdater filliste">↺</button>
+                <button @click="loadRunCsv()" :disabled="csvEdit.loading || !csvEdit.file" class="btn-secondary text-xs">
+                  <span x-show="!csvEdit.loading">Last inn</span>
+                  <span x-show="csvEdit.loading">Laster…</span>
                 </button>
-              </template>
-            </div>
-          </div>
-        </div>
-
-        <!-- Action row -->
-        <div class="flex flex-wrap items-center gap-3">
-          <button @click="runPipeline()"
-                  :disabled="pipelineRunning"
-                  class="btn-primary flex items-center gap-2">
-            <span x-show="!pipelineRunning">▶ Kjør RME Modell</span>
-            <span x-show="pipelineRunning" class="flex items-center gap-2">
-              <span class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-              Kjører …
-            </span>
-          </button>
-          <button @click="loadIrTable()"
-                  :disabled="loading"
-                  class="btn-secondary">
-            Oppdater inntektsramme
-          </button>
-        </div>
-
-        <!-- Run selector -->
-        <div class="card p-4">
-          <div class="flex flex-wrap items-end gap-4">
-            <div class="flex-1 min-w-[260px]">
-              <label class="label">Aktiv kjøring</label>
-              <select x-model="selectedRun" class="input" @change="loadIrTable(); loadDeaCompanies(); loadProgCompanies(); loadRunCsvFiles()">
-                <option value="">— Siste kjøring (automatisk) —</option>
-                <template x-for="r in availableRuns" :key="r.name">
-                  <option :value="r.name" :disabled="!r.complete" x-text="r.name + (r.complete ? '' : ' (ufullstendig)')"></option>
-                </template>
-              </select>
-            </div>
-            <div x-show="selectedRun" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-              Bruker valgt kjøring — ikke siste
-            </div>
-            <button x-show="selectedRun" @click="selectedRun = ''; loadIrTable()" class="btn-secondary text-xs">
-              Tilbakestill til siste
-            </button>
-          </div>
-        </div>
-
-        <!-- Pipeline log -->
-        <div x-show="pipelineLogs.length > 0"
-             class="card bg-slate-900 text-slate-200 font-mono text-xs p-4 max-h-48 overflow-y-auto">
-          <template x-for="(line, i) in pipelineLogs" :key="i">
-            <div x-text="line"></div>
-          </template>
-        </div>
-
-        <!-- Metrics -->
-        <div x-show="irMeta" class="grid grid-cols-3 gap-4">
-          <div class="metric-card">
-            <p class="metric-label">Antall selskaper</p>
-            <p class="metric-value" x-text="irMeta?.n_companies ?? '—'"></p>
-          </div>
-          <div class="metric-card">
-            <p class="metric-label">Sum kostnadsgrunnlag (1000 kr)</p>
-            <p class="metric-value" x-text="fmt(irMeta?.sum_kostnadsgrunnlag)"></p>
-          </div>
-          <div class="metric-card">
-            <p class="metric-label">Sum IR etter kalibrering (1000 kr)</p>
-            <p class="metric-value" x-text="fmt(irMeta?.sum_ir)"></p>
-          </div>
-        </div>
-
-        <!-- Table -->
-        <div x-show="irTable.length > 0" class="card overflow-hidden p-0">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-            <span class="text-sm font-semibold">Inntektsramme 2026 – alle selskaper</span>
-            <button @click="downloadCsv(irTable, 'ir_tabell')" class="btn-xs">↓ CSV</button>
-          </div>
-          <div class="overflow-x-auto max-h-[480px] overflow-y-auto">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <template x-for="col in irColumns" :key="col">
-                    <th x-text="col" @click="sortTable('irTable', col)" class="cursor-pointer select-none"></th>
-                  </template>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="(row, ri) in irTable" :key="ri">
-                  <tr>
-                    <template x-for="col in irColumns" :key="col">
-                      <td x-text="fmtCell(row[col])"></td>
+                <button @click="saveRunCsv()"
+                        :disabled="csvEdit.saving || !csvEdit.dirty || !csvEdit.runName"
+                        class="btn-primary text-xs"
+                        :class="csvEdit.dirty ? '' : 'opacity-50 cursor-not-allowed'">
+                  <span x-show="!csvEdit.saving">💾 Lagre</span>
+                  <span x-show="csvEdit.saving">Lagrer…</span>
+                </button>
+              </div>
+              <p x-show="csvEdit.runName" class="text-xs text-slate-400 mb-2"
+                 x-text="'Kjøring: ' + csvEdit.runName + (csvEdit.dirty ? ' · Ulagrede endringer' : ' · Ingen endringer')"></p>
+              <div x-show="csvEdit.rows.length" class="overflow-x-auto max-h-80 overflow-y-auto">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <template x-if="csvEdit.columns.includes('id')">
+                        <th>Selskap</th>
+                      </template>
+                      <template x-for="col in csvEdit.columns" :key="col">
+                        <th :title="col">
+                          <span x-text="csvColLabel(col)"></span>
+                          <span class="tech-name" x-text="col"></span>
+                        </th>
+                      </template>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="(row, ri) in csvEdit.rows" :key="ri">
+                      <tr>
+                        <template x-if="csvEdit.columns.includes('id')">
+                          <td x-text="csvCompanyName(row.id) ?? '—'"></td>
+                        </template>
+                        <template x-for="col in csvEdit.columns" :key="col">
+                          <td class="csv-cell">
+                            <input type="text"
+                                   :value="csvEdit.focusCell === ri + '_' + col
+                                     ? (csvEdit.rows[ri][col] ?? '')
+                                     : (typeof csvEdit.rows[ri][col] === 'number'
+                                         ? csvEdit.rows[ri][col].toLocaleString('no-NO', {maximumFractionDigits: 4})
+                                         : (csvEdit.rows[ri][col] ?? ''))"
+                                   @focus="csvEdit.focusCell = ri + '_' + col; $event.target.value = csvEdit.rows[ri][col] ?? ''"
+                                   @blur="csvEdit.focusCell = ''"
+                                   @change="csvEdit.rows[ri][col] = $event.target.value === '' ? null : isNaN(+$event.target.value) ? $event.target.value : +$event.target.value; csvEdit.dirty = true" />
+                          </td>
+                        </template>
+                      </tr>
                     </template>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-        </div>
+                  </tbody>
+                </table>
+              </div>
+              <p x-show="!csvEdit.rows.length" class="text-xs text-slate-400 mt-1">Velg fil og klikk <strong>Last inn</strong>.</p>
+            </div>
 
-        <!-- Empty state -->
-        <div x-show="!irTable.length && !loading" class="empty-state">
-          <p class="text-slate-500 text-sm">Klikk <strong>Oppdater inntektsramme</strong> for å laste resultater.</p>
-        </div>
-
-        <!-- CSV editor -->
-        <div class="card p-4" x-init="loadRunCsvFiles()">
-          <div class="flex flex-wrap items-center gap-3 mb-3">
-            <h3 class="text-sm font-semibold flex-1">Rediger CSV-filer</h3>
-            <select x-model="csvEdit.file" class="input w-auto text-xs" @change="csvEdit.rows = []; csvEdit.dirty = false">
-              <option value="" disabled>— velg fil —</option>
-              <template x-for="f in csvEdit.availableFiles" :key="f.filename">
-                <option :value="f.filename" x-text="f.filename"></option>
-              </template>
-            </select>
-            <button @click="loadRunCsvFiles()" class="btn-secondary text-xs" title="Oppdater filliste">↺</button>
-            <button @click="loadRunCsv()" :disabled="csvEdit.loading || !csvEdit.file" class="btn-secondary text-xs">
-              <span x-show="!csvEdit.loading">Last inn</span>
-              <span x-show="csvEdit.loading">Laster…</span>
-            </button>
-            <button @click="saveRunCsv()"
-                    :disabled="csvEdit.saving || !csvEdit.dirty || !csvEdit.runName"
-                    class="btn-primary text-xs"
-                    :class="csvEdit.dirty ? '' : 'opacity-50 cursor-not-allowed'">
-              <span x-show="!csvEdit.saving">💾 Lagre</span>
-              <span x-show="csvEdit.saving">Lagrer…</span>
-            </button>
-          </div>
-          <p x-show="csvEdit.runName" class="text-xs text-slate-400 mb-2"
-             x-text="'Kjøring: ' + csvEdit.runName + (csvEdit.dirty ? ' · Ulagrede endringer' : ' · Ingen endringer')"></p>
-          <div x-show="csvEdit.rows.length" class="overflow-x-auto max-h-80 overflow-y-auto">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <template x-if="csvEdit.columns.includes('id')">
-                    <th>Selskap</th>
-                  </template>
-                  <template x-for="col in csvEdit.columns" :key="col">
-                    <th :title="col">
-                      <span x-text="csvColLabel(col)"></span>
-                      <span class="tech-name" x-text="col"></span>
-                    </th>
-                  </template>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="(row, ri) in csvEdit.rows" :key="ri">
-                  <tr>
-                    <template x-if="csvEdit.columns.includes('id')">
-                      <td x-text="csvCompanyName(row.id) ?? '—'"></td>
-                    </template>
-                    <template x-for="col in csvEdit.columns" :key="col">
-                      <td class="csv-cell">
-                        <input type="text"
-                               :value="csvEdit.focusCell === ri + '_' + col
-                                 ? (csvEdit.rows[ri][col] ?? '')
-                                 : (typeof csvEdit.rows[ri][col] === 'number'
-                                     ? csvEdit.rows[ri][col].toLocaleString('no-NO', {maximumFractionDigits: 4})
-                                     : (csvEdit.rows[ri][col] ?? ''))"
-                               @focus="csvEdit.focusCell = ri + '_' + col; $event.target.value = csvEdit.rows[ri][col] ?? ''"
-                               @blur="csvEdit.focusCell = ''"
-                               @change="csvEdit.rows[ri][col] = $event.target.value === '' ? null : isNaN(+$event.target.value) ? $event.target.value : +$event.target.value; csvEdit.dirty = true" />
-                      </td>
-                    </template>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-          <p x-show="!csvEdit.rows.length" class="text-xs text-slate-400 mt-1">Velg fil og klikk <strong>Last inn</strong>.</p>
-        </div>
-
+          </div><!-- end right panel, min-w-0 prevents grid blowout -->
+        </div><!-- end grid -->
       </section>
+
 
 
       <!-- ══════════ TAB 2: PROGNOSEBYGGER ══════════ -->

@@ -265,6 +265,46 @@ function dashboard() {
       return this.selectedRun || this.latestRun || 'Ingen';
     },
 
+    // Formatted as "2026-05-22 · 14:32", or "Ny kjøring" when nothing selected
+    get activeRunFormatted() {
+      if (!this.selectedRun) return 'Ny kjøring';
+      const m = this.selectedRun.match(/Run_(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})/);
+      return m ? `${m[1]} · ${m[2]}:${m[3]}` : this.selectedRun;
+    },
+
+    // Step through runs: dir=+1 older (‹), dir=-1 newer (›)
+    // Array is newest-first: idx+1 = older, idx-1 = newer
+    // selectedRun='' is the "Ny kjøring" position (ahead of the newest run)
+    stepRun(dir) {
+      const runs = this.availableRuns.filter(r => r.complete);
+      if (!this.selectedRun) {
+        // At "Ny kjøring" — only ‹ (older, dir=+1) is valid
+        if (dir === 1 && runs.length) {
+          this.selectedRun = runs[0].name;
+          this.loadIrTable();
+          this.loadDeaCompanies();
+          this.loadProgCompanies();
+          this.loadRunCsvFiles();
+        }
+        return;
+      }
+      const idx = runs.findIndex(r => r.name === this.selectedRun);
+      if (idx === -1) return;
+      const next = idx + dir;
+      if (next < 0) {
+        // Going newer past the latest → back to "Ny kjøring"
+        this.selectedRun = '';
+        this.irTable = [];
+        this.irMeta = null;
+      } else if (next < runs.length) {
+        this.selectedRun = runs[next].name;
+        this.loadIrTable();
+        this.loadDeaCompanies();
+        this.loadProgCompanies();
+        this.loadRunCsvFiles();
+      }
+    },
+
     // ─── Grunnlagsdata upload ─────────────────
     async initInputFiles() {
       try {
