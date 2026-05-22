@@ -136,6 +136,11 @@ function dashboard() {
     /* ── Tab 1: RME ──────────────────────── */
     pipelineRunning: false,
     pipelineLogs:    [],
+    pipelineProgress: 0,
+    pipelineStage:    '',
+    pipelineDetail:   '',
+    pipelineShowDone: false,
+    _progressTimer:   null,
     irTable:         [],
     irColumns:       [],
     irMeta:          null,
@@ -386,39 +391,94 @@ function dashboard() {
     // ─── Tab 1 ───────────────────────────────
 
     async runPipeline() {
-      this.pipelineRunning = true;
-      this.pipelineLogs = ['Starter R-pipeline …'];
-      this.globalError = '';
+      const STAGE_PROGRESS = {
+        'Laster funksjoner':                            3,
+        'Laster konfigurasjon og data':                12,
+        'Slår sammen Z-variabler':                     20,
+        'Beregner inndataverdier':                     27,
+        'Forbereder selskapsutvalg':                   32,
+        'DEA-analyse (dette tar litt tid)':            37,
+        'Geografisk korreksjon \u2013 bootstrap':          40,
+        'Geografisk korreksjon \u2013 Z-variabler':        90,
+        'Geografisk korreksjon \u2013 effektivitetskorreksjon': 92,
+        'Kalibrering':                                 94,
+        'Spesialmodeller':                             96,
+        'Beregner inntektsrammer':                     97,
+        'N\u00f8kkeltall og resultater':                   98,
+      };
+      this.pipelineRunning  = true;
+      this.pipelineLogs     = [];
+      this.pipelineProgress = 3;
+      this.pipelineStage    = 'Starter R-pipeline…';
+      this.pipelineDetail   = '';
+      this.pipelineShowDone = false;
+      this.globalError      = '';
 
       try {
         const es = new EventSource('/api/run-pipeline');
         es.onmessage = async (e) => {
           const msg = JSON.parse(e.data);
-          if (msg.line)  this.pipelineLogs.push(msg.line);
+          if (msg.line) {
+            this.pipelineLogs.push(msg.line);
+            if (msg.line.startsWith('[STEG]')) {
+              const label = msg.line.replace('[STEG]', '').trim();
+              // Clear any running tick timer before applying next stage
+              if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
+              this.pipelineStage    = label;
+              this.pipelineDetail   = '';
+              this.pipelineProgress = STAGE_PROGRESS[label] ?? this.pipelineProgress;
+              // During bootstrap: tick +1%/s up to 89% to show activity
+              if (label === 'Geografisk korreksjon – bootstrap') {
+                this._progressTimer = setInterval(() => {
+                  if (this.pipelineProgress < 89) this.pipelineProgress++;
+                  else { clearInterval(this._progressTimer); this._progressTimer = null; }
+                }, 1000);
+              }
+            } else {
+              this.pipelineDetail = msg.line;
+            }
+          }
           if (msg.error) { this.globalError = msg.error; es.close(); this.pipelineRunning = false; }
           if (msg.done) {
             es.close();
-            this.pipelineRunning = false;
-            await this.initGrunnlagsStatus(); // file was consumed by R — refresh UI
+            this.pipelineRunning  = false;
+            this.pipelineProgress = 100;
+            this.pipelineShowDone = true;
+            await this.initGrunnlagsStatus();
             if (msg.code === 0) {
+              this.pipelineStage  = 'Fullført!';
+              this.pipelineDetail = '';
               this.showToast('R-pipeline fullført!');
               await this.fetchLatestRun();
-              this.selectedRun = this.latestRun; // auto-select the new run
+              this.selectedRun = this.latestRun;
               await this.loadIrTable();
               await this.loadDeaCompanies();
               await this.loadProgCompanies();
+              setTimeout(() => {
+                this.pipelineShowDone = false;
+                this.pipelineProgress = 0;
+                this.pipelineStage    = '';
+                this.pipelineDetail   = '';
+              }, 3000);
             } else {
-              this.globalError = `Pipeline feilet (exit ${msg.code})`;
+              this.globalError      = `Pipeline feilet (exit ${msg.code})`;
+              this.pipelineShowDone = false;
+              this.pipelineProgress = 0;
             }
           }
         };
         es.onerror = () => {
-          this.pipelineRunning = false;
+          if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
+          this.pipelineRunning  = false;
+          this.pipelineShowDone = false;
+          this.pipelineProgress = 0;
           this.globalError = 'Tilkobling til server brutt.';
           es.close();
         };
       } catch (e) {
-        this.pipelineRunning = false;
+        if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
+        this.pipelineRunning  = false;
+        this.pipelineProgress = 0;
         this.globalError = e.message;
       }
     },

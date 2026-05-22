@@ -129,6 +129,7 @@ select.input {
   width: 100%;
   border-collapse: collapse;
   font-size: .8125rem;
+  table-layout: auto;
 }
 .data-table thead {
   position: sticky;
@@ -145,7 +146,11 @@ select.input {
   letter-spacing: .05em;
   color: #64748b;
   border-bottom: 1px solid #e2e8f0;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 56px;
+  line-height: 1.3;
+  vertical-align: bottom;
 }
 .data-table th .tech-name {
   display: block;

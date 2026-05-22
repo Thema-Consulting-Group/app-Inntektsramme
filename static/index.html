@@ -228,12 +228,39 @@
           <!-- ── RIGHT: Results panel ── -->
           <div class="space-y-5 min-w-0">
 
-            <!-- Pipeline log -->
-            <div x-show="pipelineLogs.length > 0"
-                 class="card bg-slate-900 text-slate-200 font-mono text-xs p-4 max-h-48 overflow-y-auto">
-              <template x-for="(line, i) in pipelineLogs" :key="i">
-                <div x-text="line"></div>
-              </template>
+            <!-- Pipeline progress -->
+            <div x-show="pipelineRunning || pipelineShowDone" x-cloak
+                 class="card p-5 flex items-center gap-5">
+              <!-- circular ring -->
+              <div class="relative shrink-0 w-[68px] h-[68px]">
+                <svg class="w-full h-full -rotate-90" viewBox="0 0 68 68">
+                  <circle cx="34" cy="34" r="27" fill="none" stroke="#e2e8f0" stroke-width="6"/>
+                  <circle cx="34" cy="34" r="27" fill="none"
+                          :stroke="pipelineShowDone && !pipelineRunning ? '#22c55e' : '#6366f1'"
+                          stroke-width="6" stroke-linecap="round"
+                          :stroke-dasharray="`${2*Math.PI*27}`"
+                          :stroke-dashoffset="`${2*Math.PI*27*(1-pipelineProgress/100)}`"
+                          style="transition: stroke-dashoffset .5s ease, stroke .3s ease"/>
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center">
+                  <span class="text-sm font-bold tabular-nums leading-none"
+                        :class="pipelineShowDone && !pipelineRunning ? 'text-green-600' : 'text-indigo-600'"
+                        x-text="pipelineProgress + '%'"></span>
+                </div>
+              </div>
+              <!-- text -->
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold text-slate-800 leading-snug"
+                   x-text="pipelineStage || 'Starter…'"></p>
+                <p class="text-xs text-slate-400 mt-1 truncate"
+                   x-show="pipelineDetail"
+                   x-text="pipelineDetail"></p>
+                <div class="mt-2.5 h-1 rounded-full bg-slate-100 overflow-hidden">
+                  <div class="h-full rounded-full transition-all duration-500"
+                       :class="pipelineShowDone && !pipelineRunning ? 'bg-green-400' : 'bg-indigo-400'"
+                       :style="`width:${pipelineProgress}%`"></div>
+                </div>
+              </div>
             </div>
 
             <!-- Results header -->
