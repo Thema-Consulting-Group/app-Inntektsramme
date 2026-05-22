@@ -141,6 +141,54 @@ class PrognoseRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# /api/input-files  — BaseData override files (irbase / kraftpris / id)
+# ---------------------------------------------------------------------------
+
+_INPUT_FILE_DEFS: dict[str, tuple[str, str]] = {
+    "irbase":    ("irBase_override.xlsx",    "Data/BaseData"),
+    "kraftpris": ("kraftpris_override.xlsx", "Data/BaseData"),
+    "id":        ("id_override.xlsx",        "Data/BaseData"),
+}
+
+@app.get("/api/input-files")
+def get_input_files():
+    result: dict = {}
+    for key, (fname, folder) in _INPUT_FILE_DEFS.items():
+        p = ROOT / folder / fname
+        result[key] = {
+            "active": p.exists(),
+            "filename": fname if p.exists() else None,
+            "size": p.stat().st_size if p.exists() else None,
+        }
+    return result
+
+
+@app.post("/api/input-files/{key}")
+async def upload_input_file(key: str, file: UploadFile = File(...)):
+    if key not in _INPUT_FILE_DEFS:
+        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Kun Excel-filer (.xlsx/.xls) støttes.")
+    fname, folder = _INPUT_FILE_DEFS[key]
+    dest = ROOT / folder / fname
+    content = await file.read()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(content)
+    return {"ok": True, "filename": file.filename, "size": len(content)}
+
+
+@app.delete("/api/input-files/{key}")
+def delete_input_file(key: str):
+    if key not in _INPUT_FILE_DEFS:
+        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
+    fname, folder = _INPUT_FILE_DEFS[key]
+    p = ROOT / folder / fname
+    if p.exists():
+        p.unlink()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # /api/upload-grunnlagsdata
 # ---------------------------------------------------------------------------
 
@@ -372,6 +420,10 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
             yield f"data: {json.dumps({'line': stripped})}\n\n"
 
     proc.wait()
+    # Consume the uploaded grunnlagsdata — it was applied by R (or skipped on failure).
+    # Either way, clear it so future runs are not silently affected.
+    if _UPLOADED_GRUNN.exists():
+        _UPLOADED_GRUNN.unlink()
     yield f"data: {json.dumps({'done': True, 'code': proc.returncode})}\n\n"
 
 

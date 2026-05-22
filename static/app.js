@@ -143,6 +143,13 @@ function dashboard() {
     /* ── Grunnlagsdata upload ────────────── */
     grunnlag: { active: false, fileName: '', size: 0, uploading: false, dragOver: false },
 
+    /* ── BaseData input-file overrides ─────── */
+    inputFiles: [
+      { key: 'irbase',    label: 'irBase (hoveddatasett)',  accept: '.xlsx,.xls', defaultName: 'irBase - Stata - 12.11.2025 09_56_56.xlsx', override: null, uploading: false, dragOver: false },
+      { key: 'kraftpris', label: 'Kraftpris',                accept: '.xlsx,.xls', defaultName: 'kraftpris2026.xlsx',                         override: null, uploading: false, dragOver: false },
+      { key: 'id',        label: 'Selskaps-ID',              accept: '.xlsx,.xls', defaultName: 'id_ir_26.xlsx',                              override: null, uploading: false, dragOver: false },
+    ],
+
     /* ── Tab 2: Prognose ─────────────────── */
     progCompanies: [],
     prog: {
@@ -212,6 +219,7 @@ function dashboard() {
       await this.loadDeaCompanies();
       await this.loadProgCompanies();
       await this.initGrunnlagsStatus();
+      await this.initInputFiles();
     },
 
     // ─── Helpers ─────────────────────────────
@@ -258,7 +266,46 @@ function dashboard() {
     },
 
     // ─── Grunnlagsdata upload ─────────────────
+    async initInputFiles() {
+      try {
+        const d = await this.api('GET', '/api/input-files');
+        for (const f of this.inputFiles) {
+          const info = d[f.key];
+          f.override = info?.active ? info.filename : null;
+        }
+      } catch (_) {}
+    },
 
+    async uploadInputFile(key, event) {
+      const file = event.dataTransfer?.files?.[0] || event.target?.files?.[0];
+      if (!file) return;
+      const f = this.inputFiles.find(x => x.key === key);
+      if (!f) return;
+      f.dragOver = false;
+      f.uploading = true;
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const res = await fetch(`/api/input-files/${key}`, { method: 'POST', body: form });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          this.globalError = err.detail ?? 'Opplasting feilet';
+          return;
+        }
+        f.override = file.name;
+        this.showToast(`${f.label}: ${file.name} lastet opp`);
+      } catch (e) {
+        this.globalError = e.message;
+      } finally {
+        f.uploading = false;
+      }
+    },
+
+    async clearInputFile(key) {
+      const f = this.inputFiles.find(x => x.key === key);
+      await fetch(`/api/input-files/${key}`, { method: 'DELETE' });
+      if (f) { f.override = null; this.showToast(`${f.label}: tilbake til standard`); }
+    },
     async initGrunnlagsStatus() {
       try {
         const d = await this.api('GET', '/api/upload-grunnlagsdata/status');
@@ -312,6 +359,7 @@ function dashboard() {
           if (msg.done) {
             es.close();
             this.pipelineRunning = false;
+            await this.initGrunnlagsStatus(); // file was consumed by R — refresh UI
             if (msg.code === 0) {
               this.showToast('R-pipeline fullført!');
               await this.fetchLatestRun();

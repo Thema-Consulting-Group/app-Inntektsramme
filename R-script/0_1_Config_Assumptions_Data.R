@@ -3,9 +3,17 @@
 forutsetninger = load(file="./Data/forutsetninger.Rdata")
 
 #### Import data ####
-dat = read.xlsx("./Data/BaseData/irBase - Stata - 12.11.2025 09_56_56.xlsx")
-kraftpris = read.xlsx("./Data/BaseData/kraftpris2026.xlsx") 
-id = read.xlsx("./Data/BaseData/id_ir_26.xlsx") 
+# Each input file checks for an *_override.xlsx first; falls back to the default.
+.irbase_path    <- if (file.exists("./Data/BaseData/irBase_override.xlsx"))    "./Data/BaseData/irBase_override.xlsx"    else "./Data/BaseData/irBase - Stata - 12.11.2025 09_56_56.xlsx"
+.kraftpris_path <- if (file.exists("./Data/BaseData/kraftpris_override.xlsx")) "./Data/BaseData/kraftpris_override.xlsx" else "./Data/BaseData/kraftpris2026.xlsx"
+.id_path        <- if (file.exists("./Data/BaseData/id_override.xlsx"))        "./Data/BaseData/id_override.xlsx"        else "./Data/BaseData/id_ir_26.xlsx"
+cat("[input] irBase:    ", basename(.irbase_path),    "\n")
+cat("[input] kraftpris: ", basename(.kraftpris_path), "\n")
+cat("[input] id:        ", basename(.id_path),        "\n")
+
+dat      = read.xlsx(.irbase_path)
+kraftpris = read.xlsx(.kraftpris_path)
+id        = read.xlsx(.id_path)
 
 dat <- dat %>% dplyr::rename(orgn = id,
                             y = aar,
