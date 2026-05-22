@@ -140,6 +140,9 @@ function dashboard() {
     irColumns:       [],
     irMeta:          null,
 
+    /* ── Grunnlagsdata upload ────────────── */
+    grunnlag: { active: false, fileName: '', size: 0, uploading: false, dragOver: false },
+
     /* ── Tab 2: Prognose ─────────────────── */
     progCompanies: [],
     prog: {
@@ -208,6 +211,7 @@ function dashboard() {
       await this.fetchLatestRun();
       await this.loadDeaCompanies();
       await this.loadProgCompanies();
+      await this.initGrunnlagsStatus();
     },
 
     // ─── Helpers ─────────────────────────────
@@ -251,6 +255,45 @@ function dashboard() {
     // Active run label for UI (selected or latest)
     get activeRunLabel() {
       return this.selectedRun || this.latestRun || 'Ingen';
+    },
+
+    // ─── Grunnlagsdata upload ─────────────────
+
+    async initGrunnlagsStatus() {
+      try {
+        const d = await this.api('GET', '/api/upload-grunnlagsdata/status');
+        this.grunnlag = { ...this.grunnlag, active: d.active, fileName: d.filename || '', size: d.size || 0 };
+      } catch (_) {}
+    },
+
+    async uploadGrunnlagsdata(event) {
+      const file = event.dataTransfer?.files?.[0] || event.target?.files?.[0];
+      if (!file) return;
+      this.grunnlag.dragOver = false;
+      this.grunnlag.uploading = true;
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const res = await fetch('/api/upload-grunnlagsdata', { method: 'POST', body: form });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          this.globalError = err.detail ?? 'Opplasting feilet';
+          return;
+        }
+        const d = await res.json();
+        this.grunnlag = { active: true, fileName: file.name, size: file.size, uploading: false, dragOver: false };
+        this.showToast(`Grunnlagsdata lastet opp: ${file.name}`);
+      } catch (e) {
+        this.globalError = e.message;
+      } finally {
+        this.grunnlag.uploading = false;
+      }
+    },
+
+    async clearGrunnlagsdata() {
+      await fetch('/api/upload-grunnlagsdata', { method: 'DELETE' });
+      this.grunnlag = { active: false, fileName: '', size: 0, uploading: false, dragOver: false };
+      this.showToast('Grunnlagsdata fjernet – bruker siste R-kjøring');
     },
 
     // ─── Tab 1 ───────────────────────────────

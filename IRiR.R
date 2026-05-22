@@ -56,6 +56,37 @@
   source("./R-script/functions_nve.R")               # File containing functions created for/by NVE
   source("./R-script/0_1_Config_Assumptions_Data.R") # Defining parameters and importing base data
   source("./R-script/0_2_Merging_Z-variables.R")     # Merging Z-variables
+
+  # ── Apply user-uploaded grunnlagsdata overrides (if present) ──────────────
+  # Drop the file at ./Data/grunnlagsdata_uploaded.csv (same format as the
+  # grunnlagsdata.csv output) to override any values in dat before the model runs.
+  .uploaded_grunn <- "./Data/grunnlagsdata_uploaded.csv"
+  if (file.exists(.uploaded_grunn)) {
+    cat("[override] Loading grunnlagsdata overrides from", .uploaded_grunn, "\n")
+    .ov <- read.csv(.uploaded_grunn, stringsAsFactors = FALSE, check.names = FALSE)
+    .ov$orgn <- as.integer(.ov$orgn)
+    # Columns to update: everything present in both dat and the override file,
+    # excluding row-index / key columns that must not be changed.
+    .skip <- c("X", "orgn", "y", "id", "comp", "id.y", "orgn.y")
+    .override_cols <- setdiff(intersect(names(dat), names(.ov)), .skip)
+    .n_changed <- 0L
+    for (.i in seq_len(nrow(.ov))) {
+      .idx <- which(dat$orgn == .ov$orgn[.i] & dat$y == .ov$y[.i])
+      if (length(.idx) == 0L) next
+      for (.col in .override_cols) {
+        .val <- .ov[[.col]][.i]
+        if (!is.na(.val)) {
+          dat[.idx, .col] <- .val
+          .n_changed <- .n_changed + 1L
+        }
+      }
+    }
+    cat("[override] Applied", .n_changed, "value overrides across",
+        nrow(.ov), "company-year rows\n")
+    rm(.uploaded_grunn, .ov, .skip, .override_cols, .n_changed, .i, .idx, .col, .val)
+  }
+  # ─────────────────────────────────────────────────────────────────────────────
+
   write.dat = dat[,c("orgn", "y", "comp", "ld_OPEXxS", "ld_sal", "ld_sal.cap", "ld_pens", "ld_pens.eq", "ld_impl", "ld_391", "ld_elhub", "ld_usla", "rd_OPEXxS",
                      "rd_sal", "rd_sal.cap", "rd_pens", "rd_pens.eq", "rd_impl", "rd_391", "rd_elhub", "rd_cga", "rd_cga_tidl", "rd_coord", "rd_usla", "t_OPEXxS", "t_sal", "t_sal.cap",
                      "t_pens", "t_pens.eq", "t_impl", "t_391", "t_elhub", "ld_bv.sf", "ld_dep.sf", "ld_bv.gf", "ld_dep.gf", "rd_bv.sf", "rd_dep.sf", "rd_bv.gf",

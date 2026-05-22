@@ -946,8 +946,16 @@ class PrognoseCalculator:
             k_rd_excl = self.eff_rd * (rd_kg_t - rd_nettap_t)
             k_rd_t = k_rd_excl + rd_nettap_t
 
-            # Base year (2026): use the actual calibrated inntektsramme from the model
+            # Base year (2026): pin KG/KN/IR to the exact values from the IR model
+            # (avoids mismatch from nve_rente vs referanserente and raw vs kpi-adjusted KILE)
             if year == _BASE_YEAR:
+                if self.ld_kg:
+                    ld_kg_t = self.ld_kg
+                if self.rd_kg:
+                    rd_kg_t = self.rd_kg
+                total_kg_t = self.total_kg  # LD+RD+T from etl (matches RME Modell)
+                k_ld_t = self.k_ld
+                k_rd_t = self.k_rd
                 ir_t = self.total_ir
             else:
                 ir_t = (1 - self.rho) * total_kg_t + self.rho * (k_ld_t + k_rd_t)

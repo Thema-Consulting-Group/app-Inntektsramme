@@ -19,7 +19,8 @@ from typing import Any, AsyncGenerator
 import numpy as np
 import pandas as pd
 import yaml
-from fastapi import FastAPI, HTTPException, Query
+import io
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -30,9 +31,23 @@ os.chdir(ROOT)
 
 app = FastAPI(title="Inntektsramme API", docs_url="/api/docs")
 
+# Path where the user can drop a grunnlagsdata CSV to override auto-detection
+_UPLOADED_GRUNN = ROOT / "Data" / "grunnlagsdata_uploaded.csv"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _resolve_grunnlagsdata(run_name: str | None = None) -> str | None:
+    """Return path to grunnlagsdata CSV.
+    Uploaded file always takes priority over auto-detection.
+    run_name is only used as fallback when no uploaded file exists.
+    """
+    if _UPLOADED_GRUNN.exists():
+        return str(_UPLOADED_GRUNN)
+    paths = _latest_run_paths(run_name)
+    return str(paths[0]) if paths else None
+
 
 def _clean(obj: Any) -> Any:
     """Recursively replace NaN/Inf with None for JSON serialisation."""
@@ -71,7 +86,7 @@ def _latest_run_paths(run_name: str | None = None) -> tuple[Path, Path, Path] | 
             return None
         if not d.is_dir():
             return None
-        irir = next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
+        irir = next((f for pat in ("*grunnlagsdata*.csv", "*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls") for f in d.glob(pat)), None)
         ld   = next(d.glob("Data_Resultater_LD*"), None)
         rd   = next(d.glob("Data_Resultater_RD*"), None)
         return (irir, ld, rd) if (irir and ld and rd) else None
@@ -84,9 +99,10 @@ def _latest_run_paths(run_name: str | None = None) -> tuple[Path, Path, Path] | 
     run_dirs = sorted(
         [d for d in results_dir.iterdir() if d.is_dir() and not d.name.startswith('.')],
         key=_sort_key,
+        reverse=True,
     )
     for d in run_dirs:
-        irir = next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
+        irir = next((f for pat in ("*grunnlagsdata*.csv", "*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls") for f in d.glob(pat)), None)
         ld   = next(d.glob("Data_Resultater_LD*"), None)
         rd   = next(d.glob("Data_Resultater_RD*"), None)
         if irir and ld and rd:
@@ -125,6 +141,47 @@ class PrognoseRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# /api/upload-grunnlagsdata
+# ---------------------------------------------------------------------------
+
+@app.post("/api/upload-grunnlagsdata")
+async def upload_grunnlagsdata(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(400, "Kun CSV-filer støttes.")
+    content = await file.read()
+    try:
+        sample = content[:4096].decode("utf-8-sig", errors="replace")
+        first_line = sample.split("\n")[0].lower()
+        if "orgn" not in first_line and "id" not in first_line:
+            raise HTTPException(400, "Filen ser ikke ut som grunnlagsdata (mangler 'orgn'/'id' kolonner).")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Kunne ikke lese filen: {e}")
+    _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
+    _UPLOADED_GRUNN.write_bytes(content)
+    try:
+        n_rows = len(pd.read_csv(io.BytesIO(content)))
+    except Exception:
+        n_rows = -1
+    return {"ok": True, "filename": file.filename, "rows": n_rows}
+
+
+@app.delete("/api/upload-grunnlagsdata")
+def delete_grunnlagsdata():
+    if _UPLOADED_GRUNN.exists():
+        _UPLOADED_GRUNN.unlink()
+    return {"ok": True}
+
+
+@app.get("/api/upload-grunnlagsdata/status")
+def grunnlagsdata_status():
+    if _UPLOADED_GRUNN.exists():
+        return {"active": True, "filename": _UPLOADED_GRUNN.name, "size": _UPLOADED_GRUNN.stat().st_size}
+    return {"active": False}
+
+
+# ---------------------------------------------------------------------------
 # /api/runs
 # ---------------------------------------------------------------------------
 
@@ -140,7 +197,7 @@ def get_runs():
     for d in sorted([d for d in results_dir.iterdir() if d.is_dir() and not d.name.startswith('.')], key=_sort_key, reverse=False):
         files = [{"name": f.name, "size": f.stat().st_size} for f in sorted(d.iterdir()) if f.is_file()]
         complete = bool(
-            next((f for pat in ("*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls", "*grunnlagsdata*.csv") for f in d.glob(pat)), None)
+            next((f for pat in ("*grunnlagsdata*.csv", "*grunnlagsdata*.xlsx", "*grunnlagsdata*.xls") for f in d.glob(pat)), None)
             and next(d.glob("Data_Resultater_LD*"), None)
             and next(d.glob("Data_Resultater_RD*"), None)
         )
@@ -160,7 +217,17 @@ class CsvSaveRequest(BaseModel):
 
 
 def _run_dir_from_name(run_name: str | None) -> Path | None:
-    paths = _latest_run_paths(run_name)
+    results_dir = ROOT / "Results"
+    if run_name:
+        # Validate name (same rules as _latest_run_paths)
+        if re.search(r'[\\/]|\.\.', run_name) or not run_name.strip():
+            return None
+        d = results_dir / run_name
+        if not str(d.resolve()).startswith(str(results_dir.resolve())):
+            return None
+        return d if d.is_dir() else None
+    # No name: fall back to latest complete run
+    paths = _latest_run_paths(None)
     return paths[0].parent if paths else None
 
 
@@ -366,8 +433,7 @@ def run_prognose(body: PrognoseRequest):
         if etl_row.empty:
             raise HTTPException(404, f"Selskap med org.nr {body.orgn} ikke funnet")
 
-        paths = _latest_run_paths(body.run_name)
-        grunn_csv = str(paths[0]) if paths else None
+        grunn_csv = _resolve_grunnlagsdata(body.run_name)
 
         calc = PrognoseCalculator(
             base_ir=ir_row.iloc[0].to_dict() if not ir_row.empty else {},
@@ -425,10 +491,9 @@ def run_prognose(body: PrognoseRequest):
 
 @app.get("/api/kostnader")
 def get_kostnader(orgn: int | None = Query(default=None), run_name: str | None = Query(default=None)):
-    paths = _latest_run_paths(run_name)
-    if not paths:
+    grunn_csv = _resolve_grunnlagsdata(run_name)
+    if not grunn_csv:
         raise HTTPException(404, "Ingen resultater funnet.")
-    grunn_csv = str(paths[0])
     try:
         from kostnader import grunnlagsdata_to_rme, _load_nve_id_map  # noqa: PLC0415
         company_ids = None
@@ -449,10 +514,9 @@ def get_kostnader(orgn: int | None = Query(default=None), run_name: str | None =
 
 @app.get("/api/task-elasticities")
 def get_task_elasticities(run_name: str | None = Query(default=None)):
-    paths = _latest_run_paths(run_name)
-    if not paths:
+    grunn_csv = _resolve_grunnlagsdata(run_name)
+    if not grunn_csv:
         raise HTTPException(404, "Ingen resultater funnet.")
-    grunn_csv = str(paths[0])
     try:
         from prognose import estimate_task_elasticities  # noqa: PLC0415
         return estimate_task_elasticities(grunn_csv)
@@ -462,10 +526,9 @@ def get_task_elasticities(run_name: str | None = Query(default=None)):
 
 @app.get("/api/task-elasticities/scatter")
 def get_task_elasticities_scatter(run_name: str | None = Query(default=None)):
-    paths = _latest_run_paths(run_name)
-    if not paths:
+    grunn_csv = _resolve_grunnlagsdata(run_name)
+    if not grunn_csv:
         raise HTTPException(404, "Ingen resultater funnet.")
-    grunn_csv = str(paths[0])
     try:
         from prognose import get_task_elasticity_observations  # noqa: PLC0415
         return get_task_elasticity_observations(grunn_csv)

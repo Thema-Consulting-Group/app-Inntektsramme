@@ -142,6 +142,33 @@ if active_step == 1:
             disabled=not _ir_loaded,
         )
 
+    # ── Grunnlagsdata drag-and-drop ──────────────────────────────────
+    with st.expander(
+        "📂 Last opp grunnlagsdata (valgfritt – erstatter BaseData fra R-kjøring)",
+        expanded="uploaded_grunnlagsdata_csv" in st.session_state,
+    ):
+        _uploaded_file = st.file_uploader(
+            "Dra og slipp en grunnlagsdata CSV-fil her, eller klikk for å velge",
+            type=["csv"],
+            key="grunnlagsdata_uploader",
+            label_visibility="collapsed",
+            help="Filen skal ha samme kolonnestruktur som grunnlagsdata.csv fra en R-kjøring (orgn, y, id, comp, ld_*, rd_*, …)",
+        )
+        if _uploaded_file is not None:
+            _upload_dest = ROOT_DIR / "Data" / "grunnlagsdata_uploaded.csv"
+            _upload_dest.write_bytes(_uploaded_file.getvalue())
+            st.session_state["uploaded_grunnlagsdata_csv"] = str(_upload_dest)
+            st.success(f"Lastet opp: **{_uploaded_file.name}** → brukes som grunnlagsdata")
+        elif "uploaded_grunnlagsdata_csv" in st.session_state:
+            _existing = Path(st.session_state["uploaded_grunnlagsdata_csv"])
+            _col_info, _col_btn = st.columns([4, 1])
+            _col_info.caption(f"Aktiv fil: `{_existing.name}`")
+            if _col_btn.button("Fjern", key="remove_uploaded_grunn"):
+                del st.session_state["uploaded_grunnlagsdata_csv"]
+                if _existing.exists():
+                    _existing.unlink()
+                st.rerun()
+
     _status_container = st.container()
 
     # ── Run full R pipeline ─────────────────────────────────────────
@@ -537,13 +564,19 @@ if active_step == 2:
     _base_ir_row: dict  = _ir_df.loc[_ir_df["Selskap"] == _sel_comp].iloc[0].to_dict()
 
     # Resolve grunnlagsdata.csv early so tab_foru can reference it
-    _grunnlagsdata_csv = None
-    _irir_path_early = _cfg4_raw.get("irir_results_path", "")
-    if _irir_path_early:
-        _run_dir_early = (ROOT_DIR / _irir_path_early).parent
-        _csv_early = sorted(_run_dir_early.glob("*grunnlagsdata.csv"), reverse=True)
-        if _csv_early:
-            _grunnlagsdata_csv = str(_csv_early[0])
+    # Prefer user-uploaded file if present
+    _grunnlagsdata_csv: str | None = st.session_state.get("uploaded_grunnlagsdata_csv")
+    if _grunnlagsdata_csv and not Path(_grunnlagsdata_csv).exists():
+        # Stale path (file was removed externally) – clear session state
+        del st.session_state["uploaded_grunnlagsdata_csv"]
+        _grunnlagsdata_csv = None
+    if not _grunnlagsdata_csv:
+        _irir_path_early = _cfg4_raw.get("irir_results_path", "")
+        if _irir_path_early:
+            _run_dir_early = (ROOT_DIR / _irir_path_early).parent
+            _csv_early = sorted(_run_dir_early.glob("*grunnlagsdata.csv"), reverse=True)
+            if _csv_early:
+                _grunnlagsdata_csv = str(_csv_early[0])
     if not _grunnlagsdata_csv:
         _run_dirs_early = sorted(
             [d for d in (ROOT_DIR / "Results").iterdir() if d.is_dir() and d.name.startswith("Run_")],
