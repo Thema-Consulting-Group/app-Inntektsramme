@@ -2,13 +2,13 @@
    Inntektsramme – Alpine.js dashboard app
    ───────────────────────────────────────────── */
 
-// ── Colour palette (Plotly) ─────────────────
-const BRAND   = '#2563eb';
-const BRAND_L = '#93c5fd';
-const RED     = '#e63946';
-const RED_L   = '#fca5a5';
-const EMERALD = '#10b981';
-const SLATE   = '#94a3b8';
+// ── Colour palette (Plotly) — Thema ─────────
+const BRAND   = '#507864';  // Hooker's green
+const BRAND_L = '#A4CB8D';  // Pistachio
+const RED     = '#E28A76';  // Salmon
+const RED_L   = '#f0c4b8';  // Light salmon
+const EMERALD = '#285064';  // Charcoal (Inntektsramme + frontier ref)
+const SLATE   = '#6e8fa0';  // Blue-tinted slate
 
 // ── CSV column label mappings ────────────────
 const CSV_COL_LABELS = {
@@ -741,11 +741,18 @@ function dashboard() {
       const effRows = this.prog.summary.filter(r =>
         ['Effektivitet Dnett %', 'Effektivitet vektet %', 'Avkastning NVE %'].includes(r['Parameter'])
       );
+      const effColorMap = {
+        'Effektivitet Dnett %':  '#507864',
+        'Effektivitet vektet %': '#A26284',
+        'Avkastning NVE %':      '#FDD55B',
+      };
       const effTraces = effRows.map(row => ({
         x: yrs,
         y: yrs.map(yr => row[yr] ?? null),
         mode: 'lines+markers',
         name: row['Parameter'],
+        line:   { color: effColorMap[row['Parameter']] || BRAND },
+        marker: { size: 5, color: effColorMap[row['Parameter']] || BRAND },
         hovertemplate: '%{x}: %{y:.2f} %<extra>' + row['Parameter'] + '</extra>',
       }));
       Plotly.react(effEl, effTraces, {
@@ -936,7 +943,7 @@ function dashboard() {
         hole: 0.45,
         textinfo: 'label+percent',
         hovertemplate: '%{label}: %{value:.3f}<extra></extra>',
-        marker: { colors: [BRAND, '#60a5fa', '#93c5fd', '#bfdbfe', EMERALD, '#6ee7b7', RED, '#fca5a5'] },
+        marker: { colors: [BRAND, '#285064', BRAND_L, '#3a6578', '#A3D9FF', '#FDD55B', RED, '#A26284'] },
       }], {
         ...BASE_LAYOUT,
         margin: { t: 10, b: 10, l: 10, r: 10 },
@@ -955,7 +962,7 @@ function dashboard() {
       const isFocus  = sorted.map(r => r.id === focusId);
       const baseColors = isFocus.map(f => f ? RED   : BRAND);
       const scenColors = isFocus.map(f => f ? RED_L : BRAND_L);
-      const s2Color    = isFocus.map(f => f ? '#f97316' : '#6ee7b7');  // orange / emerald
+      const s2Color    = isFocus.map(f => f ? '#FDD55B' : '#A3D9FF');  // mustard / uranian blue
 
       const s2 = this.dea.showStage2;
       const hasExcl = this.dea.excludeIds.length > 0;
@@ -997,14 +1004,14 @@ function dashboard() {
             name: 'Trinn 2 geo-korrigert (scenario)',
             x: sorted.map(r => r.eff_s2_approx_scenario),
             y: labels,
-            marker: { color: '#fb923c', symbol: 'circle', size: 7, line: { width: 1, color: '#fff' } },
+            marker: { color: '#6bbde0', symbol: 'circle', size: 7, line: { width: 1, color: '#fff' } },
             hovertemplate: '%{y}: %{x:.3f}<extra>Trinn 2 scenario</extra>',
           });
         }
       }
 
       const s3 = this.dea.showStage3;
-      const s3Color = isFocus.map(f => f ? '#7c3aed' : '#a78bfa');  // violet
+      const s3Color = isFocus.map(f => f ? '#7a4063' : '#A26284');  // china rose
       if (s3) {
         traces.push({
           type: 'scatter', mode: 'markers', orientation: 'h',
@@ -1020,7 +1027,7 @@ function dashboard() {
             name: 'Trinn 3 kalibrert (scenario)',
             x: sorted.map(r => r.eff_s3_approx_scenario),
             y: labels,
-            marker: { color: '#c4b5fd', symbol: 'star-open', size: 8, line: { width: 1.5, color: '#7c3aed' } },
+            marker: { color: '#ddb5c8', symbol: 'star-open', size: 8, line: { width: 1.5, color: '#A26284' } },
             hovertemplate: '%{y}: %{x:.3f}<extra>Trinn 3 scenario</extra>',
           });
         }
@@ -1103,7 +1110,7 @@ function dashboard() {
       // ─────────────────────────────────────────────────────────────────────
 
       const effFocusVal = focusRows[0]?.eff_s1_baseline ?? 0;
-      const effColorScale = [[0, '#fca5a5'], [0.4, '#93c5fd'], [0.85, '#6ee7b7'], [1.0, '#059669']];
+      const effColorScale = [[0, '#E28A76'], [0.4, '#A3D9FF'], [0.85, '#A4CB8D'], [1.0, '#507864']];
 
       const traces = [
         // 2D convex hull frontier

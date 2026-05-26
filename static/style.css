@@ -7,7 +7,7 @@
 /* ── Card ── */
 .card {
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #d4e4dc;
   border-radius: 12px;
   box-shadow: 0 1px 4px rgba(0,0,0,.05);
   padding: 1rem;
@@ -16,7 +16,7 @@
 /* ── Metric card ── */
 .metric-card {
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #d4e4dc;
   border-radius: 12px;
   box-shadow: 0 1px 4px rgba(0,0,0,.05);
   padding: 1rem 1.25rem;
@@ -134,7 +134,7 @@ select.input {
 .data-table thead {
   position: sticky;
   top: 0;
-  background: #f8fafc;
+  background: #f0f5f3;
   z-index: 1;
 }
 .data-table th {
@@ -192,7 +192,7 @@ select.input {
   color: #334155;
   white-space: nowrap;
 }
-.data-table tbody tr:hover { background: #f8fafc; }
+.data-table tbody tr:hover { background: #f0f7f4; }
 .data-table tbody tr:last-child td { border-bottom: none; }
 
 /* Numeric cells – right-align */
@@ -217,8 +217,8 @@ select.input {
 /* ── Scrollbar styling ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar-thumb { background: #9bbdad; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #507864; }
 
 /* ── Plotly overrides – clean charts ── */
 .plotly .modebar { opacity: 0.4; }

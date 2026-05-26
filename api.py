@@ -6,6 +6,7 @@ Then open:  http://localhost:8000
 
 from __future__ import annotations
 
+import glob
 import json
 import math
 import os
@@ -21,7 +22,7 @@ import pandas as pd
 import yaml
 import io
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -400,6 +401,15 @@ _SUPPRESS = (
 async def _pipeline_generator() -> AsyncGenerator[str, None]:
     rscript = shutil.which("Rscript")
     if not rscript:
+        # Fallback: scan common Windows install paths (works even when conda
+        # overwrites PATH and hides the user-added R\bin directory)
+        candidates = sorted(
+            glob.glob(r"C:\Program Files\R\R-*\bin\Rscript.exe"),
+            reverse=True,  # newest version first
+        )
+        if candidates:
+            rscript = candidates[0]
+    if not rscript:
         yield f"data: {json.dumps({'error': 'Finner ikke Rscript på PATH'})}\n\n"
         return
 
@@ -671,6 +681,10 @@ def run_frontier_scenario(body: ScenarioRequest):
 # ---------------------------------------------------------------------------
 # Static files — must be last
 # ---------------------------------------------------------------------------
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse(ROOT / "figures" / "favicon.ico")
 
 static_dir = ROOT / "static"
 static_dir.mkdir(exist_ok=True)
