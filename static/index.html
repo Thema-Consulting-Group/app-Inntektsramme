@@ -17,7 +17,7 @@
         extend: {
           fontFamily: { sans: ['Inter', 'sans-serif'] },
           colors: {
-            brand: { 50:'#eff6ff', 100:'#dbeafe', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8' },
+            brand: { 50:'#f0f7f4', 100:'#cfe0d8', 500:'#507864', 600:'#507864', 700:'#3d5e4d', 800:'#2a4035' },
           },
         },
       },
@@ -39,9 +39,9 @@
 <div class="flex h-screen overflow-hidden">
 
   <!-- Sidebar -->
-  <aside class="flex flex-col w-60 shrink-0 bg-slate-900 text-slate-100 select-none">
+  <aside class="flex flex-col w-60 shrink-0 bg-[#285064] text-slate-100 select-none">
     <!-- Logo -->
-    <div class="flex items-center gap-3 px-5 py-5 border-b border-slate-700">
+    <div class="flex items-center gap-3 px-5 py-5 border-b border-[#1a3d50]">
       <div class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white font-bold text-sm">IR</div>
       <span class="font-semibold text-sm tracking-wide">Inntektsramme</span>
     </div>
@@ -53,7 +53,7 @@
           @click="tab = item.id"
           :class="tab === item.id
             ? 'bg-brand-600 text-white'
-            : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
+            : 'text-[#A3D9FF]/60 hover:bg-[#1a3d50] hover:text-white'"
           class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left"
         >
           <span x-html="item.icon" class="w-4 h-4 shrink-0 opacity-80"></span>
@@ -66,10 +66,10 @@
     </nav>
 
     <!-- Run indicator -->
-    <div class="px-4 py-3 border-t border-slate-700">
-      <p class="text-xs text-slate-500 mb-1">Aktiv kjøring</p>
+    <div class="px-4 py-3 border-t border-[#1a3d50]">
+      <p class="text-xs text-[#A3D9FF]/50 mb-1">Aktiv kjøring</p>
       <p x-text="activeRunLabel" class="text-xs truncate"
-         :class="selectedRun ? 'text-amber-400' : 'text-slate-300'"></p>
+         :class="selectedRun ? 'text-[#FDD55B]' : 'text-[#A3D9FF]/60'"></p>
     </div>
   </aside>
 
@@ -160,7 +160,7 @@
                        x-text="f.override ? f.override : f.defaultName"></p>
                   </div>
 
-                  <span x-show="f.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin shrink-0"></span>
+                  <span x-show="f.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-[#507864] rounded-full animate-spin shrink-0"></span>
                   <button x-show="f.override && !f.uploading"
                           @click.prevent.stop="clearInputFile(f.key)"
                           class="text-slate-300 hover:text-red-500 shrink-0 transition-colors text-sm leading-none" title="Fjern overstyring">✕</button>
@@ -202,7 +202,7 @@
                      x-text="grunnlag.active ? grunnlag.fileName : '—'"></p>
                 </div>
 
-                <span x-show="grunnlag.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin shrink-0"></span>
+                <span x-show="grunnlag.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-[#507864] rounded-full animate-spin shrink-0"></span>
                 <button x-show="grunnlag.active && !grunnlag.uploading"
                         @click.prevent.stop="clearGrunnlagsdata()"
                         class="text-slate-300 hover:text-red-500 shrink-0 transition-colors text-sm leading-none" title="Fjern">✕</button>
@@ -236,7 +236,7 @@
                 <svg class="w-full h-full -rotate-90" viewBox="0 0 68 68">
                   <circle cx="34" cy="34" r="27" fill="none" stroke="#e2e8f0" stroke-width="6"/>
                   <circle cx="34" cy="34" r="27" fill="none"
-                          :stroke="pipelineShowDone && !pipelineRunning ? '#22c55e' : '#6366f1'"
+                          :stroke="pipelineShowDone && !pipelineRunning ? '#A4CB8D' : '#507864'"
                           stroke-width="6" stroke-linecap="round"
                           :stroke-dasharray="`${2*Math.PI*27}`"
                           :stroke-dashoffset="`${2*Math.PI*27*(1-pipelineProgress/100)}`"
@@ -244,7 +244,7 @@
                 </svg>
                 <div class="absolute inset-0 flex items-center justify-center">
                   <span class="text-sm font-bold tabular-nums leading-none"
-                        :class="pipelineShowDone && !pipelineRunning ? 'text-green-600' : 'text-indigo-600'"
+                        :class="pipelineShowDone && !pipelineRunning ? 'text-[#507864]' : 'text-[#507864]'"
                         x-text="pipelineProgress + '%'"></span>
                 </div>
               </div>
@@ -257,7 +257,7 @@
                    x-text="pipelineDetail"></p>
                 <div class="mt-2.5 h-1 rounded-full bg-slate-100 overflow-hidden">
                   <div class="h-full rounded-full transition-all duration-500"
-                       :class="pipelineShowDone && !pipelineRunning ? 'bg-green-400' : 'bg-indigo-400'"
+                       :class="pipelineShowDone && !pipelineRunning ? 'bg-[#A4CB8D]' : 'bg-[#507864]'"
                        :style="`width:${pipelineProgress}%`"></div>
                 </div>
               </div>
@@ -647,11 +647,11 @@
             </div>
             <div class="metric-card">
               <p class="metric-label">Eff. trinn 3 – kal. (nåsit.)</p>
-              <p class="metric-value text-violet-700" x-text="pct(dea.focusRow?.eff_s3_approx_base)"></p>
+              <p class="metric-value text-[#A26284]" x-text="pct(dea.focusRow?.eff_s3_approx_base)"></p>
             </div>
             <div class="metric-card">
               <p class="metric-label">Eff. trinn 3 – kal. (scenario)</p>
-              <p class="metric-value text-violet-700" x-text="pct(dea.focusRow?.eff_s3_approx_scenario)"></p>
+              <p class="metric-value text-[#A26284]" x-text="pct(dea.focusRow?.eff_s3_approx_scenario)"></p>
             </div>
             <div class="metric-card">
               <p class="metric-label">Gap til front (nåsit.) MNOK</p>
@@ -683,7 +683,7 @@
                     Vis trinn 2 (geo-korrigert)
                   </label>
                   <label class="flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
-                    <input type="checkbox" x-model="dea.showStage3" class="accent-violet-600"
+                    <input type="checkbox" x-model="dea.showStage3" class="accent-[#A26284]"
                            @change="$nextTick(() => renderEffChart())" />
                     Vis trinn 3 (kalibrert)
                   </label>
