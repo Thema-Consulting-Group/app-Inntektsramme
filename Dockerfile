@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     libtiff5-dev \
     libjpeg-dev \
+    libuv1-dev \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Make python3 / pip3 available as python / pip
