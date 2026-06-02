@@ -407,19 +407,16 @@ function dashboard() {
 
     async runPipeline() {
       const STAGE_PROGRESS = {
-        'Laster funksjoner':                            3,
-        'Laster konfigurasjon og data':                12,
-        'Slår sammen Z-variabler':                     20,
-        'Beregner inndataverdier':                     27,
-        'Forbereder selskapsutvalg':                   32,
-        'DEA-analyse (dette tar litt tid)':            37,
-        'Geografisk korreksjon \u2013 bootstrap':          40,
-        'Geografisk korreksjon \u2013 Z-variabler':        90,
+        'Beregner inndataverdier':                          28,
+        'Forbereder selskapsutvalg':                        33,
+        'DEA-analyse (dette tar litt tid)':                 38,
+        'Geografisk korreksjon \u2013 bootstrap':           42,
+        'Geografisk korreksjon \u2013 Z-variabler':         90,
         'Geografisk korreksjon \u2013 effektivitetskorreksjon': 92,
-        'Kalibrering':                                 94,
-        'Spesialmodeller':                             96,
-        'Beregner inntektsrammer':                     97,
-        'N\u00f8kkeltall og resultater':                   98,
+        'Kalibrering':                                      94,
+        'Spesialmodeller':                                  96,
+        'Beregner inntektsrammer':                          97,
+        'N\u00f8kkeltall og resultater':                    99,
       };
       this.pipelineRunning  = true;
       this.pipelineLogs     = ['Starter R-pipeline…'];
