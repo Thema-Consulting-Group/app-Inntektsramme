@@ -429,7 +429,7 @@ def get_ir_table(run_name: str | None = Query(default=None)):
 _SUPPRESS = (
     "── Attaching", "✔ ", "✖ ", "── Conflicts", "ℹ ", "Registered S3",
     "The following object", "The following packages", "tidyverse",
-    "Loading required package:", "character(0)", '[1] "C:/', '[1] "/',
+    "Loading required package:", "character(0)",
 )
 
 async def _pipeline_generator() -> AsyncGenerator[str, None]:
