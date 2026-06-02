@@ -73,19 +73,11 @@
   #source("./Forutsetninger.R") 
 
 #### Calculating revenue caps ####
-<<<<<<< HEAD
   cat("[diag] Sourcing functions_nve.R...\n")
   source("./R-script/functions_nve.R")               # File containing functions created for/by NVE
   cat("[diag] Sourcing 0_1_Config_Assumptions_Data.R...\n")
   source("./R-script/0_1_Config_Assumptions_Data.R") # Defining parameters and importing base data
   cat("[diag] Sourcing 0_2_Merging_Z-variables.R...\n")
-=======
-  cat("[STEG] Laster funksjoner\n")
-  source("./R-script/functions_nve.R")               # File containing functions created for/by NVE
-  cat("[STEG] Laster konfigurasjon og data\n")
-  source("./R-script/0_1_Config_Assumptions_Data.R") # Defining parameters and importing base data
-  cat("[STEG] Slår sammen Z-variabler\n")
->>>>>>> 61de1154c23d482d575be7085ce8dd3d0764ee0d
   source("./R-script/0_2_Merging_Z-variables.R")     # Merging Z-variables
 
   # ── Apply user-uploaded grunnlagsdata overrides (if present) ──────────────
