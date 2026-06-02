@@ -5,23 +5,43 @@
   start.time =  Sys.time()
   options(scipen = 2000) # Avoid showing large numbers in scientific mode
 
-# Set CRAN mirror
-  options(repos = c(CRAN = "https://cran.rstudio.com/"))
+  # Route message() output to stdout so it streams through the API
+  options(warn = 1)  # print warnings immediately
+  message <- function(...) cat("[msg]", ..., "\n", sep="")
 
-# Install/load packages
-  if (!"Benchmarking" %in% installed.packages()) install.packages("Benchmarking")
-  if (!"plyr" %in% installed.packages()) install.packages("plyr")
-  if (!"dplyr" %in% installed.packages()) install.packages("dplyr")
-  if (!"openxlsx" %in% installed.packages()) install.packages("openxlsx")
-  if (!"tidyverse" %in% installed.packages()) install.packages("tidyverse")
-  if (!"writexl" %in% installed.packages()) install.packages("writexl")
-  if (!"readxl" %in% installed.packages()) install.packages("readxl")
+  cat("[diag] Working directory:", getwd(), "\n")
+  cat("[diag] R version:", R.version$major, R.version$minor, "\n")
+
+# Set CRAN mirror (Posit binary repo — pre-built binaries, no compilation)
+  options(
+    repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"),
+    HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+      paste(getRversion(), R.version[["platform"]], R.version[["arch"]], R.version[["os"]]))
+  )
+
+# Install/load packages (skip install if already available)
+  .ensure <- function(pkg) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      cat("[install]", pkg, "\n")
+      install.packages(pkg)
+    }
+  }
+  .ensure("Benchmarking")
+  .ensure("plyr")
+  .ensure("dplyr")
+  .ensure("openxlsx")
+  .ensure("tidyverse")
+  .ensure("writexl")
+  .ensure("readxl")
+
+  cat("[diag] Loading libraries...\n")
   library(tidyverse)
   library(Benchmarking)
   library(dplyr)
   library(openxlsx)
   library(writexl)
   library(readxl)
+  cat("[diag] Libraries loaded OK\n")
   
   # Automatically setting working directory to where the data file is located. 
   # setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # RStudio only
@@ -53,8 +73,11 @@
   #source("./Forutsetninger.R") 
 
 #### Calculating revenue caps ####
+  cat("[diag] Sourcing functions_nve.R...\n")
   source("./R-script/functions_nve.R")               # File containing functions created for/by NVE
+  cat("[diag] Sourcing 0_1_Config_Assumptions_Data.R...\n")
   source("./R-script/0_1_Config_Assumptions_Data.R") # Defining parameters and importing base data
+  cat("[diag] Sourcing 0_2_Merging_Z-variables.R...\n")
   source("./R-script/0_2_Merging_Z-variables.R")     # Merging Z-variables
 
   # ── Apply user-uploaded grunnlagsdata overrides (if present) ──────────────
