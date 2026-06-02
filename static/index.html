@@ -263,6 +263,19 @@
               </div>
             </div>
 
+            <!-- Pipeline log (visible during run and after failure) -->
+            <div x-show="pipelineLogs.length > 1"
+                 class="card bg-slate-900 text-slate-200 font-mono text-xs p-4 max-h-64 overflow-y-auto">
+              <template x-for="(line, i) in pipelineLogs" :key="i">
+                <div x-text="line"
+                     :class="line.startsWith('[preflight]') || line.startsWith('[file]') ? 'text-slate-400' :
+                             line.startsWith('[diag]') ? 'text-sky-400' :
+                             line.startsWith('[STEG]') ? 'text-emerald-400 font-semibold' :
+                             line.toLowerCase().includes('error') || line.toLowerCase().includes('feil') ? 'text-red-400' :
+                             'text-slate-200'"></div>
+              </template>
+            </div>
+
             <!-- Results header -->
             <div x-show="irMeta" class="flex items-baseline justify-between gap-4">
               <div>

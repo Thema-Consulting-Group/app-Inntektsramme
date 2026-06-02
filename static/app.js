@@ -422,7 +422,7 @@ function dashboard() {
         'N\u00f8kkeltall og resultater':                   98,
       };
       this.pipelineRunning  = true;
-      this.pipelineLogs     = [];
+      this.pipelineLogs     = ['Starter R-pipeline…'];
       this.pipelineProgress = 3;
       this.pipelineStage    = 'Starter R-pipeline…';
       this.pipelineDetail   = '';
@@ -476,9 +476,10 @@ function dashboard() {
                 this.pipelineDetail   = '';
               }, 3000);
             } else {
-              this.globalError      = `Pipeline feilet (exit ${msg.code})`;
+              this.globalError      = `Pipeline feilet (exit ${msg.code}). Se logg nedenfor.`;
               this.pipelineShowDone = false;
               this.pipelineProgress = 0;
+              // keep pipelineLogs visible so user can read the error
             }
           }
         };
