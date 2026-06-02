@@ -14,7 +14,7 @@
 
 # Set CRAN mirror (Posit binary repo — pre-built binaries, no compilation)
   options(
-    repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"),
+    repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/noble/latest"),
     HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
       paste(getRversion(), R.version[["platform"]], R.version[["arch"]], R.version[["os"]]))
   )

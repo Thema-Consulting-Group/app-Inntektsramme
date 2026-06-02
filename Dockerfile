@@ -34,7 +34,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python \
 # ---------------------------------------------------------------------------
 RUN Rscript -e "\
   options(\
-    repos = c(CRAN = 'https://packagemanager.posit.co/cran/__linux__/jammy/latest'),\
+    repos = c(CRAN = 'https://packagemanager.posit.co/cran/__linux__/noble/latest'),\
     HTTPUserAgent = sprintf('R/%s R (%s)', getRversion(), paste(getRversion(), R.version[['platform']], R.version[['arch']], R.version[['os']]))\
   ); \
   pkgs <- c('tidyverse', 'Benchmarking', 'dplyr', 'openxlsx', \
