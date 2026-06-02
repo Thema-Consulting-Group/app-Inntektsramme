@@ -433,6 +433,19 @@ _SUPPRESS = (
 )
 
 async def _pipeline_generator() -> AsyncGenerator[str, None]:
+    # Pre-flight: check IRiR.R for conflict markers and report first lines
+    irr_path = ROOT / "IRiR.R"
+    try:
+        first_lines = irr_path.read_text(encoding="utf-8", errors="replace").splitlines()[:5]
+        for ln in first_lines:
+            yield f"data: {json.dumps({'line': f'[file] {ln}'})}\n\n"
+        conflict_lines = [l for l in first_lines if l.startswith("<<<<<<<") or l.startswith(">>>>>>>")]
+        if conflict_lines:
+            yield f"data: {json.dumps({'error': 'IRiR.R has unresolved conflict markers — push the resolved file first'})}\n\n"
+            return
+    except Exception as e:
+        yield f"data: {json.dumps({'line': f'[preflight error] {e}'})}\n\n"
+
     rscript = shutil.which("Rscript")
     if not rscript:
         # Fallback: scan common Windows install paths (works even when conda
@@ -446,6 +459,8 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
     if not rscript:
         yield f"data: {json.dumps({'error': 'Finner ikke Rscript på PATH'})}\n\n"
         return
+
+    yield f"data: {json.dumps({'line': f'[preflight] Rscript: {rscript}'})}\n\n"
 
     proc = subprocess.Popen(
         [rscript, "--quiet", "IRiR.R"],
