@@ -55,6 +55,9 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements-docker.tx
 # ---------------------------------------------------------------------------
 COPY . .
 
+# Ensure runtime-writable directories exist (Bootstrap excluded from image)
+RUN mkdir -p /app/Data/Bootstrap /app/Results
+
 # ---------------------------------------------------------------------------
 # 5. Runtime configuration
 # ---------------------------------------------------------------------------
