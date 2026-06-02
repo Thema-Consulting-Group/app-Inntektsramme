@@ -21,16 +21,50 @@ import numpy as np
 import pandas as pd
 import yaml
 import io
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+import secrets
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
-app = FastAPI(title="Inntektsramme API", docs_url="/api/docs")
+# ---------------------------------------------------------------------------
+# Optional HTTP Basic Auth  (set APP_USER + APP_PASS env vars to enable)
+# ---------------------------------------------------------------------------
+_AUTH_USER = os.environ.get("APP_USER", "")
+_AUTH_PASS = os.environ.get("APP_PASS", "")
+_http_security = HTTPBasic(auto_error=False)
+
+
+def _check_auth(credentials: HTTPBasicCredentials | None = Depends(_http_security)):
+    if not _AUTH_USER:
+        return  # auth disabled
+    if credentials is None:
+        raise HTTPException(
+            401, "Authentication required",
+            headers={"WWW-Authenticate": "Basic realm='Inntektsramme'"},
+        )
+    ok = (
+        secrets.compare_digest(credentials.username.encode(), _AUTH_USER.encode())
+        and secrets.compare_digest(credentials.password.encode(), _AUTH_PASS.encode())
+    )
+    if not ok:
+        raise HTTPException(
+            401, "Invalid credentials",
+            headers={"WWW-Authenticate": "Basic realm='Inntektsramme'"},
+        )
+
+
+# Re-create app with global auth dependency so every route is protected.
+app = FastAPI(
+    title="Inntektsramme API",
+    docs_url="/api/docs",
+    dependencies=[Depends(_check_auth)],
+)
 
 # Path where the user can drop a grunnlagsdata CSV to override auto-detection
 _UPLOADED_GRUNN = ROOT / "Data" / "grunnlagsdata_uploaded.csv"
@@ -568,6 +602,18 @@ def get_kostnader(orgn: int | None = Query(default=None), run_name: str | None =
         return {"table": _df_to_records(df)}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+# ---------------------------------------------------------------------------
+# /api/forutsetninger  — default assumptions (from kraftpris_soner.csv)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/forutsetninger")
+def get_forutsetninger():
+    from prognose import load_forutsetninger_from_csv, DEFAULT_FORUTSETNINGER  # noqa: PLC0415
+    data = load_forutsetninger_from_csv() or DEFAULT_FORUTSETNINGER
+    # Serialize int year keys → strings for JSON
+    return {k: {str(yr): v for yr, v in series.items()} for k, series in data.items()}
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,20 @@
+# Minimal Python dependencies for the FastAPI/uvicorn container.
+# Intentionally lean — avoids Windows-only and conda-local packages
+# that are in the full requirements.txt.
+
+fastapi==0.135.1
+uvicorn[standard]==0.41.0
+pydantic==2.12.5
+starlette==0.52.1
+
+# Data
+pandas==2.2.1
+numpy==1.26.0
+scipy==1.16.1
+openpyxl==3.1.5
+pyxlsb==1.0.10
+xlsxwriter==3.2.9
+
+# Config / misc
+PyYAML==6.0.3
+python-multipart>=0.0.9

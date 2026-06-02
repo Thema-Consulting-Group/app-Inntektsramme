@@ -23,9 +23,9 @@ Dobbeltklikk på **`start.bat`** i prosjektmappen.
 
 Første gang tar det 10–20 minutter å laste ned og bygge tilhørende pakker.
 
-Når du ser teksten `You can now view your Streamlit app in your browser`, åpne:
+Når containeren er klar, åpne:
 
-**http://localhost:8501**
+**http://localhost:8000**
 
 ---
 

@@ -10,6 +10,18 @@ const RED_L   = '#f0c4b8';  // Light salmon
 const EMERALD = '#285064';  // Charcoal (Inntektsramme + frontier ref)
 const SLATE   = '#6e8fa0';  // Blue-tinted slate
 
+// ── Compact IR table columns (collapsed view) ──
+const IR_COMPACT_COLS = [
+  'Selskap',
+  'inntektsramme 2026',
+  'D&V-kostnader eks utredningskostnader',
+  'Årslønn-justerte D&V-kostnader eks utredningskostnader',
+  'AVS',
+  'BFV',
+  'AKG (inkl 1 % arbeids-kapital)',
+  'Kraftpris kr/MWh',
+];
+
 // ── CSV column label mappings ────────────────
 const CSV_COL_LABELS = {
   // identifiers
@@ -144,6 +156,7 @@ function dashboard() {
     irTable:         [],
     irColumns:       [],
     irMeta:          null,
+    irExpanded:      false,
 
     /* ── Grunnlagsdata upload ────────────── */
     grunnlag: { active: false, fileName: '', size: 0, uploading: false, dragOver: false },
@@ -161,6 +174,7 @@ function dashboard() {
       orgn: '', result: null, summary: [], years: [], allYears: [], compName: '',
       rho: 0.7, avs: 4.0,
       mergeYr: null, synergyPct: 0, oneOff: 0,
+      forutsetninger: null,   // loaded from /api/forutsetninger, editable by user
     },
 
     /* ── Tab 3: Kostnader ────────────────── */
@@ -223,6 +237,7 @@ function dashboard() {
       await this.fetchLatestRun();
       await this.loadDeaCompanies();
       await this.loadProgCompanies();
+      await this.loadForutsetninger();
       await this.initGrunnlagsStatus();
       await this.initInputFiles();
     },
@@ -499,6 +514,13 @@ function dashboard() {
       }
     },
 
+    async loadForutsetninger() {
+      try {
+        const data = await this.api('GET', '/api/forutsetninger');
+        this.prog.forutsetninger = data;
+      } catch (_) {}
+    },
+
     // ─── Tab 2 ───────────────────────────────
 
     async loadProgCompanies() {
@@ -539,6 +561,7 @@ function dashboard() {
           synergy_pct: this.prog.synergyPct,
           one_off: this.prog.oneOff,
           run_name: this._runName(),
+          forutsetninger: this.prog.forutsetninger || null,
           task_elas_override: (this.elas.useOverrides && this.elas.estimated)
             ? this._buildElasOverride()
             : null,

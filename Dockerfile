@@ -1,6 +1,6 @@
 # =============================================================================
 #  Inntektsramme – Docker image
-#  Base: rocker/r-ver gives us R 4.5.2 on Ubuntu LTS
+#  Base: rocker/r-ver gives us R 4.5 on Ubuntu LTS + Rscript on PATH
 # =============================================================================
 FROM rocker/r-ver:4.5.2
 
@@ -10,7 +10,6 @@ FROM rocker/r-ver:4.5.2
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
-    python3-venv \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev \
@@ -32,7 +31,10 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python \
 #    Install in one RUN layer so Docker can cache it effectively.
 # ---------------------------------------------------------------------------
 RUN Rscript -e "\
-  options(repos = c(CRAN = 'https://cran.rstudio.com/')); \
+  options(\
+    repos = c(CRAN = 'https://packagemanager.posit.co/cran/__linux__/jammy/latest'),\
+    HTTPUserAgent = sprintf('R/%s R (%s)', getRversion(), paste(getRversion(), R.version[['platform']], R.version[['arch']], R.version[['os']]))\
+  ); \
   pkgs <- c('tidyverse', 'Benchmarking', 'dplyr', 'openxlsx', \
             'writexl', 'readxl', 'plyr', 'pxweb', 'XML', \
             'RCurl', 'zoo', 'DBI', 'reshape2'); \
@@ -40,11 +42,11 @@ RUN Rscript -e "\
   cat('R packages installed OK\n')"
 
 # ---------------------------------------------------------------------------
-# 3. Python packages
+# 3. Python packages  (lean list — see requirements-docker.txt)
 # ---------------------------------------------------------------------------
 WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
+COPY requirements-docker.txt ./
+RUN pip install --no-cache-dir --break-system-packages -r requirements-docker.txt
 
 # ---------------------------------------------------------------------------
 # 4. Copy repo content
@@ -52,14 +54,13 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 COPY . .
 
 # ---------------------------------------------------------------------------
-# 5. Expose Streamlit port and set default run command
+# 5. Runtime configuration
 # ---------------------------------------------------------------------------
-EXPOSE 8501
+EXPOSE 8000
 
-# Streamlit config: disable the welcome page and CORS for container use
-ENV STREAMLIT_SERVER_PORT=8501 \
-    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
-    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
-    STREAMLIT_SERVER_HEADLESS=true
+# Optional password protection — set these in Railway / Render / docker run -e
+# Leave blank to disable auth.
+ENV APP_USER="" \
+    APP_PASS=""
 
-CMD ["streamlit", "run", "app.py"]
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
