@@ -2,13 +2,25 @@
    Inntektsramme – Alpine.js dashboard app
    ───────────────────────────────────────────── */
 
-// ── Colour palette (Plotly) ─────────────────
-const BRAND   = '#2563eb';
-const BRAND_L = '#93c5fd';
-const RED     = '#e63946';
-const RED_L   = '#fca5a5';
-const EMERALD = '#10b981';
-const SLATE   = '#94a3b8';
+// ── Colour palette (Plotly) — Thema ─────────
+const BRAND   = '#507864';  // Hooker's green
+const BRAND_L = '#A4CB8D';  // Pistachio
+const RED     = '#E28A76';  // Salmon
+const RED_L   = '#f0c4b8';  // Light salmon
+const EMERALD = '#285064';  // Charcoal (Inntektsramme + frontier ref)
+const SLATE   = '#6e8fa0';  // Blue-tinted slate
+
+// ── Compact IR table columns (collapsed view) ──
+const IR_COMPACT_COLS = [
+  'Selskap',
+  'inntektsramme 2026',
+  'D&V-kostnader eks utredningskostnader',
+  'Årslønn-justerte D&V-kostnader eks utredningskostnader',
+  'AVS',
+  'BFV',
+  'AKG (inkl 1 % arbeids-kapital)',
+  'Kraftpris kr/MWh',
+];
 
 // ── CSV column label mappings ────────────────
 const CSV_COL_LABELS = {
@@ -136,9 +148,15 @@ function dashboard() {
     /* ── Tab 1: RME ──────────────────────── */
     pipelineRunning: false,
     pipelineLogs:    [],
+    pipelineProgress: 0,
+    pipelineStage:    '',
+    pipelineDetail:   '',
+    pipelineShowDone: false,
+    _progressTimer:   null,
     irTable:         [],
     irColumns:       [],
     irMeta:          null,
+    irExpanded:      false,
 
     /* ── Grunnlagsdata upload ────────────── */
     grunnlag: { active: false, fileName: '', size: 0, uploading: false, dragOver: false },
@@ -156,6 +174,7 @@ function dashboard() {
       orgn: '', result: null, summary: [], years: [], allYears: [], compName: '',
       rho: 0.7, avs: 4.0,
       mergeYr: null, synergyPct: 0, oneOff: 0,
+      forutsetninger: null,   // loaded from /api/forutsetninger, editable by user
     },
 
     /* ── Tab 3: Kostnader ────────────────── */
@@ -218,6 +237,7 @@ function dashboard() {
       await this.fetchLatestRun();
       await this.loadDeaCompanies();
       await this.loadProgCompanies();
+      await this.loadForutsetninger();
       await this.initGrunnlagsStatus();
       await this.initInputFiles();
     },
@@ -263,6 +283,46 @@ function dashboard() {
     // Active run label for UI (selected or latest)
     get activeRunLabel() {
       return this.selectedRun || this.latestRun || 'Ingen';
+    },
+
+    // Formatted as "2026-05-22 · 14:32", or "Ny kjøring" when nothing selected
+    get activeRunFormatted() {
+      if (!this.selectedRun) return 'Ny kjøring';
+      const m = this.selectedRun.match(/Run_(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})/);
+      return m ? `${m[1]} · ${m[2]}:${m[3]}` : this.selectedRun;
+    },
+
+    // Step through runs: dir=+1 older (‹), dir=-1 newer (›)
+    // Array is newest-first: idx+1 = older, idx-1 = newer
+    // selectedRun='' is the "Ny kjøring" position (ahead of the newest run)
+    stepRun(dir) {
+      const runs = this.availableRuns.filter(r => r.complete);
+      if (!this.selectedRun) {
+        // At "Ny kjøring" — only ‹ (older, dir=+1) is valid
+        if (dir === 1 && runs.length) {
+          this.selectedRun = runs[0].name;
+          this.loadIrTable();
+          this.loadDeaCompanies();
+          this.loadProgCompanies();
+          this.loadRunCsvFiles();
+        }
+        return;
+      }
+      const idx = runs.findIndex(r => r.name === this.selectedRun);
+      if (idx === -1) return;
+      const next = idx + dir;
+      if (next < 0) {
+        // Going newer past the latest → back to "Ny kjøring"
+        this.selectedRun = '';
+        this.irTable = [];
+        this.irMeta = null;
+      } else if (next < runs.length) {
+        this.selectedRun = runs[next].name;
+        this.loadIrTable();
+        this.loadDeaCompanies();
+        this.loadProgCompanies();
+        this.loadRunCsvFiles();
+      }
     },
 
     // ─── Grunnlagsdata upload ─────────────────
@@ -346,39 +406,94 @@ function dashboard() {
     // ─── Tab 1 ───────────────────────────────
 
     async runPipeline() {
-      this.pipelineRunning = true;
-      this.pipelineLogs = ['Starter R-pipeline …'];
-      this.globalError = '';
+      const STAGE_PROGRESS = {
+        'Laster funksjoner':                            3,
+        'Laster konfigurasjon og data':                12,
+        'Slår sammen Z-variabler':                     20,
+        'Beregner inndataverdier':                     27,
+        'Forbereder selskapsutvalg':                   32,
+        'DEA-analyse (dette tar litt tid)':            37,
+        'Geografisk korreksjon \u2013 bootstrap':          40,
+        'Geografisk korreksjon \u2013 Z-variabler':        90,
+        'Geografisk korreksjon \u2013 effektivitetskorreksjon': 92,
+        'Kalibrering':                                 94,
+        'Spesialmodeller':                             96,
+        'Beregner inntektsrammer':                     97,
+        'N\u00f8kkeltall og resultater':                   98,
+      };
+      this.pipelineRunning  = true;
+      this.pipelineLogs     = [];
+      this.pipelineProgress = 3;
+      this.pipelineStage    = 'Starter R-pipeline…';
+      this.pipelineDetail   = '';
+      this.pipelineShowDone = false;
+      this.globalError      = '';
 
       try {
         const es = new EventSource('/api/run-pipeline');
         es.onmessage = async (e) => {
           const msg = JSON.parse(e.data);
-          if (msg.line)  this.pipelineLogs.push(msg.line);
+          if (msg.line) {
+            this.pipelineLogs.push(msg.line);
+            if (msg.line.startsWith('[STEG]')) {
+              const label = msg.line.replace('[STEG]', '').trim();
+              // Clear any running tick timer before applying next stage
+              if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
+              this.pipelineStage    = label;
+              this.pipelineDetail   = '';
+              this.pipelineProgress = STAGE_PROGRESS[label] ?? this.pipelineProgress;
+              // During bootstrap: tick +1%/s up to 89% to show activity
+              if (label === 'Geografisk korreksjon – bootstrap') {
+                this._progressTimer = setInterval(() => {
+                  if (this.pipelineProgress < 89) this.pipelineProgress++;
+                  else { clearInterval(this._progressTimer); this._progressTimer = null; }
+                }, 1000);
+              }
+            } else {
+              this.pipelineDetail = msg.line;
+            }
+          }
           if (msg.error) { this.globalError = msg.error; es.close(); this.pipelineRunning = false; }
           if (msg.done) {
             es.close();
-            this.pipelineRunning = false;
-            await this.initGrunnlagsStatus(); // file was consumed by R — refresh UI
+            this.pipelineRunning  = false;
+            this.pipelineProgress = 100;
+            this.pipelineShowDone = true;
+            await this.initGrunnlagsStatus();
             if (msg.code === 0) {
+              this.pipelineStage  = 'Fullført!';
+              this.pipelineDetail = '';
               this.showToast('R-pipeline fullført!');
               await this.fetchLatestRun();
-              this.selectedRun = this.latestRun; // auto-select the new run
+              this.selectedRun = this.latestRun;
               await this.loadIrTable();
               await this.loadDeaCompanies();
               await this.loadProgCompanies();
+              setTimeout(() => {
+                this.pipelineShowDone = false;
+                this.pipelineProgress = 0;
+                this.pipelineStage    = '';
+                this.pipelineDetail   = '';
+              }, 3000);
             } else {
-              this.globalError = `Pipeline feilet (exit ${msg.code})`;
+              this.globalError      = `Pipeline feilet (exit ${msg.code})`;
+              this.pipelineShowDone = false;
+              this.pipelineProgress = 0;
             }
           }
         };
         es.onerror = () => {
-          this.pipelineRunning = false;
+          if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
+          this.pipelineRunning  = false;
+          this.pipelineShowDone = false;
+          this.pipelineProgress = 0;
           this.globalError = 'Tilkobling til server brutt.';
           es.close();
         };
       } catch (e) {
-        this.pipelineRunning = false;
+        if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
+        this.pipelineRunning  = false;
+        this.pipelineProgress = 0;
         this.globalError = e.message;
       }
     },
@@ -397,6 +512,13 @@ function dashboard() {
       } finally {
         this.loading = false;
       }
+    },
+
+    async loadForutsetninger() {
+      try {
+        const data = await this.api('GET', '/api/forutsetninger');
+        this.prog.forutsetninger = data;
+      } catch (_) {}
     },
 
     // ─── Tab 2 ───────────────────────────────
@@ -439,6 +561,7 @@ function dashboard() {
           synergy_pct: this.prog.synergyPct,
           one_off: this.prog.oneOff,
           run_name: this._runName(),
+          forutsetninger: this.prog.forutsetninger || null,
           task_elas_override: (this.elas.useOverrides && this.elas.estimated)
             ? this._buildElasOverride()
             : null,
@@ -641,11 +764,18 @@ function dashboard() {
       const effRows = this.prog.summary.filter(r =>
         ['Effektivitet Dnett %', 'Effektivitet vektet %', 'Avkastning NVE %'].includes(r['Parameter'])
       );
+      const effColorMap = {
+        'Effektivitet Dnett %':  '#507864',
+        'Effektivitet vektet %': '#A26284',
+        'Avkastning NVE %':      '#FDD55B',
+      };
       const effTraces = effRows.map(row => ({
         x: yrs,
         y: yrs.map(yr => row[yr] ?? null),
         mode: 'lines+markers',
         name: row['Parameter'],
+        line:   { color: effColorMap[row['Parameter']] || BRAND },
+        marker: { size: 5, color: effColorMap[row['Parameter']] || BRAND },
         hovertemplate: '%{x}: %{y:.2f} %<extra>' + row['Parameter'] + '</extra>',
       }));
       Plotly.react(effEl, effTraces, {
@@ -836,7 +966,7 @@ function dashboard() {
         hole: 0.45,
         textinfo: 'label+percent',
         hovertemplate: '%{label}: %{value:.3f}<extra></extra>',
-        marker: { colors: [BRAND, '#60a5fa', '#93c5fd', '#bfdbfe', EMERALD, '#6ee7b7', RED, '#fca5a5'] },
+        marker: { colors: [BRAND, '#285064', BRAND_L, '#3a6578', '#A3D9FF', '#FDD55B', RED, '#A26284'] },
       }], {
         ...BASE_LAYOUT,
         margin: { t: 10, b: 10, l: 10, r: 10 },
@@ -855,7 +985,7 @@ function dashboard() {
       const isFocus  = sorted.map(r => r.id === focusId);
       const baseColors = isFocus.map(f => f ? RED   : BRAND);
       const scenColors = isFocus.map(f => f ? RED_L : BRAND_L);
-      const s2Color    = isFocus.map(f => f ? '#f97316' : '#6ee7b7');  // orange / emerald
+      const s2Color    = isFocus.map(f => f ? '#FDD55B' : '#A3D9FF');  // mustard / uranian blue
 
       const s2 = this.dea.showStage2;
       const hasExcl = this.dea.excludeIds.length > 0;
@@ -897,14 +1027,14 @@ function dashboard() {
             name: 'Trinn 2 geo-korrigert (scenario)',
             x: sorted.map(r => r.eff_s2_approx_scenario),
             y: labels,
-            marker: { color: '#fb923c', symbol: 'circle', size: 7, line: { width: 1, color: '#fff' } },
+            marker: { color: '#6bbde0', symbol: 'circle', size: 7, line: { width: 1, color: '#fff' } },
             hovertemplate: '%{y}: %{x:.3f}<extra>Trinn 2 scenario</extra>',
           });
         }
       }
 
       const s3 = this.dea.showStage3;
-      const s3Color = isFocus.map(f => f ? '#7c3aed' : '#a78bfa');  // violet
+      const s3Color = isFocus.map(f => f ? '#7a4063' : '#A26284');  // china rose
       if (s3) {
         traces.push({
           type: 'scatter', mode: 'markers', orientation: 'h',
@@ -920,7 +1050,7 @@ function dashboard() {
             name: 'Trinn 3 kalibrert (scenario)',
             x: sorted.map(r => r.eff_s3_approx_scenario),
             y: labels,
-            marker: { color: '#c4b5fd', symbol: 'star-open', size: 8, line: { width: 1.5, color: '#7c3aed' } },
+            marker: { color: '#ddb5c8', symbol: 'star-open', size: 8, line: { width: 1.5, color: '#A26284' } },
             hovertemplate: '%{y}: %{x:.3f}<extra>Trinn 3 scenario</extra>',
           });
         }
@@ -1003,7 +1133,7 @@ function dashboard() {
       // ─────────────────────────────────────────────────────────────────────
 
       const effFocusVal = focusRows[0]?.eff_s1_baseline ?? 0;
-      const effColorScale = [[0, '#fca5a5'], [0.4, '#93c5fd'], [0.85, '#6ee7b7'], [1.0, '#059669']];
+      const effColorScale = [[0, '#E28A76'], [0.4, '#A3D9FF'], [0.85, '#A4CB8D'], [1.0, '#507864']];
 
       const traces = [
         // 2D convex hull frontier

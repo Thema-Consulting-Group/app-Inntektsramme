@@ -73,11 +73,19 @@
   #source("./Forutsetninger.R") 
 
 #### Calculating revenue caps ####
+<<<<<<< HEAD
   cat("[diag] Sourcing functions_nve.R...\n")
   source("./R-script/functions_nve.R")               # File containing functions created for/by NVE
   cat("[diag] Sourcing 0_1_Config_Assumptions_Data.R...\n")
   source("./R-script/0_1_Config_Assumptions_Data.R") # Defining parameters and importing base data
   cat("[diag] Sourcing 0_2_Merging_Z-variables.R...\n")
+=======
+  cat("[STEG] Laster funksjoner\n")
+  source("./R-script/functions_nve.R")               # File containing functions created for/by NVE
+  cat("[STEG] Laster konfigurasjon og data\n")
+  source("./R-script/0_1_Config_Assumptions_Data.R") # Defining parameters and importing base data
+  cat("[STEG] Slår sammen Z-variabler\n")
+>>>>>>> 61de1154c23d482d575be7085ce8dd3d0764ee0d
   source("./R-script/0_2_Merging_Z-variables.R")     # Merging Z-variables
 
   # ── Apply user-uploaded grunnlagsdata overrides (if present) ──────────────
@@ -123,18 +131,26 @@
   write.csv(write.dat, file = csv_file)
   write.xlsx(write.dat, file = xlsx_file, overwrite = T)
         
+  cat("[STEG] Beregner inndataverdier\n")
   source("./R-script/0_3_Calculated_Input_Values.R")    # Calculating input values for DEA
+  cat("[STEG] Forbereder selskapsutvalg\n")
   source("./R-script/0_4_Company_Selection.R")          # Preparing for special treatment
+  cat("[STEG] DEA-analyse (dette tar litt tid)\n")
   source("./R-script/1_0_DEA.R")                        # Stage 1 - DEA
+  cat("[STEG] Geografisk korreksjon – bootstrap\n")
   source("./R-script/2_0_GeoCorrection.R")       # Stage 2 - Z factor adjustment using OLS
+  cat("[STEG] Kalibrering\n")
   source("./R-script/3_0_Calibration.R")         # Calibration on RAB including gf investments
+  cat("[STEG] Spesialmodeller\n")
   source("./R-script/Spec_OOTO-model.R")                # Companies exempted from DEA - Special models
   source("./R-script/Spec_AvEff-model.R")               # Companies exempted from DEA - Special models
+  cat("[STEG] Beregner inntektsrammer\n")
   source("./R-script/4_0_Revenue_Cap_Calculation.R")    # Calculating Revenue caps
 
   end.time =  Sys.time()
   calc.time = end.time - start.time
   calc.time
+  cat("[STEG] Nøkkeltall og resultater\n")
   source("./R-script/Key_figures.R")      # Script creating data frame for printing results
   source("./R-script/Print_results.R")    # Script for printing results
 
