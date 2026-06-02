@@ -21,6 +21,38 @@ import numpy as np
 FORECAST_YEARS = list(range(2025, 2036))  # <-- start 2025
 _BASE_YEAR = 2026  # revenue cap model output year (y.rc)
 
+_SONER_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "BaseData", "kraftpris_soner.csv")
+
+
+def load_forutsetninger_from_csv(path: str = _SONER_CSV) -> dict | None:
+    """Load KPI, KPI lønn, NVE-rente and Systemkraftpris from kraftpris_soner.csv.
+    Returns a forutsetninger dict with int year keys, or None if file not found.
+    """
+    try:
+        df = pd.read_csv(path)
+        year_cols = [c for c in df.columns if c.strip().isdigit()]
+        forecast_years = [y for y in year_cols if int(y) >= 2025]
+
+        def _row(sone_name: str) -> dict:
+            row = df[df["sone"] == sone_name]
+            if row.empty:
+                return {}
+            r = row.iloc[0]
+            return {int(y): float(r[y]) for y in forecast_years}
+
+        result = {
+            "kpi":       _row("KPI"),
+            "kpi_lonn":  _row("KPI lønn"),
+            "nve_rente": _row("NVE-rente"),
+            "kraftpris": _row("Systemkraftpris"),
+        }
+        # Return None if any series is empty (CSV missing expected rows)
+        if not all(result.values()):
+            return None
+        return result
+    except Exception:
+        return None
+
 
 def _read_grunnlag(path: str) -> pd.DataFrame:
     """Read grunnlagsdata from CSV or Excel (.xlsx/.xls)."""
@@ -33,24 +65,29 @@ def _read_grunnlag(path: str) -> pd.DataFrame:
 # Default assumptions from NVE's online tool (April 2026)
 # ---------------------------------------------------------------------------
 
-DEFAULT_FORUTSETNINGER = {
+_DEFAULT_FORUTSETNINGER_HARDCODED = {
     "kpi": {
+        2025: 3.1,
         2026: 3.2, 2027: 2.4, 2028: 2.3, 2029: 1.9, 2030: 2.0,
         2031: 2.0, 2032: 2.0, 2033: 2.0, 2034: 2.0, 2035: 2.0,
     },
     "kpi_lonn": {
+        2025: 4.2,
         2026: 3.6, 2027: 3.0, 2028: 2.85, 2029: 2.55, 2030: 2.57,
         2031: 2.56, 2032: 2.54, 2033: 2.53, 2034: 2.51, 2035: 2.5,
     },
     "nve_rente": {
+        2025: 7.39,
         2026: 7.53, 2027: 7.48, 2028: 7.32, 2029: 7.27, 2030: 7.24,
         2031: 7.26, 2032: 7.25, 2033: 7.23, 2034: 7.2, 2035: 7.16,
     },
     "kraftpris": {
-        2026: 786.0, 2027: 640.0, 2028: 633.0, 2029: 617.0, 2030: 643.0,
-        2031: 744.0, 2032: 743.0, 2033: 746.0, 2034: 729.0, 2035: 715.0,
+        2025: 501.99,
+        2026: 785.98, 2027: 639.97, 2028: 633.22, 2029: 617.21, 2030: 643.23,
+        2031: 743.56, 2032: 742.96, 2033: 745.58, 2034: 729.21, 2035: 715.2,
     },
 }
+DEFAULT_FORUTSETNINGER: dict = load_forutsetninger_from_csv() or _DEFAULT_FORUTSETNINGER_HARDCODED
 
 DEFAULT_INVESTERINGER = {
     "dnett_pct": {
@@ -405,7 +442,14 @@ class PrognoseCalculator:
         self.use_historical_inv = use_historical_inv
         self.edited_inv_nok = edited_inv_nok or {}  # {inv_sf_ld, inv_gf_ld, inv_sf_rd, inv_gf_rd} → {yr: nok}
         self._task_elas_override = task_elas_override  # applied after _init_subcomponents if provided
-        self.f = forutsetninger or DEFAULT_FORUTSETNINGER
+        if forutsetninger:
+            # Coerce JSON string year-keys ("2026") to int for _get() lookups
+            self.f = {
+                k: {int(yr): float(v) for yr, v in series.items()} if isinstance(series, dict) else series
+                for k, series in forutsetninger.items()
+            }
+        else:
+            self.f = DEFAULT_FORUTSETNINGER
         # If no override passed, look up per-company values from investeringer.csv
         if investeringer is None:
             _cid = int(base_etl.get("ID", 0))

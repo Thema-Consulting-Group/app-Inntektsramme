@@ -16,6 +16,7 @@ if(BS.new == 1 ) {
   write.csv(ld_bs, "./Data/Bootstrap/ld_bs.csv", row.names = FALSE)
 }
 stopifnot(exists("ld_bs") == TRUE)
+cat("[STEG] Geografisk korreksjon – Z-variabler\n")
 
 # Merging bootstrap corrected scores into ld_EVAL
 ld_EVAL = merge.data.frame(ld_EVAL, ld_bs, by="id", all.x = T)
@@ -57,6 +58,7 @@ ld_EVAL$ld_cnorm = ld_EVAL$ld_TOTXDEA * ld_EVAL$ld_eff.s1.cb  # Previously used 
   ldz.coeff = ldz.reg$coeff 
   
   print(summary(ldz.reg$res.regr.NVE))
+cat("[STEG] Geografisk korreksjon – effektivitetskorreksjon\n")
 
 # Adjusting efficiency scores from stage 1, using difference in Z-value relative to target unit
   eff.cb.avg.ld = dea.cb.avg.ld$eff
