@@ -5,17 +5,22 @@
   start.time =  Sys.time()
   options(scipen = 2000) # Avoid showing large numbers in scientific mode
 
-# Set CRAN mirror
-  options(repos = c(CRAN = "https://cran.rstudio.com/"))
+# Set CRAN mirror (Posit binary repo for fast installs if needed)
+  options(
+    repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"),
+    HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+      paste(getRversion(), R.version[["platform"]], R.version[["arch"]], R.version[["os"]]))
+  )
 
-# Install/load packages
-  if (!"Benchmarking" %in% installed.packages()) install.packages("Benchmarking")
-  if (!"plyr" %in% installed.packages()) install.packages("plyr")
-  if (!"dplyr" %in% installed.packages()) install.packages("dplyr")
-  if (!"openxlsx" %in% installed.packages()) install.packages("openxlsx")
-  if (!"tidyverse" %in% installed.packages()) install.packages("tidyverse")
-  if (!"writexl" %in% installed.packages()) install.packages("writexl")
-  if (!"readxl" %in% installed.packages()) install.packages("readxl")
+# Install/load packages (skip install if already available — faster in Docker)
+  .ensure <- function(pkg) if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg)
+  .ensure("Benchmarking")
+  .ensure("plyr")
+  .ensure("dplyr")
+  .ensure("openxlsx")
+  .ensure("tidyverse")
+  .ensure("writexl")
+  .ensure("readxl")
   library(tidyverse)
   library(Benchmarking)
   library(dplyr)
