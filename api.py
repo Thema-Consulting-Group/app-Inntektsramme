@@ -6,6 +6,7 @@ Then open:  http://localhost:8000
 
 from __future__ import annotations
 
+import asyncio
 import glob
 import io
 import json
@@ -463,23 +464,19 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
 
     yield f"data: {json.dumps({'line': f'[preflight] Rscript: {rscript}'})}\n\n"
 
-    proc = subprocess.Popen(
-        [rscript, "--quiet", "IRiR.R"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
+    proc = await asyncio.create_subprocess_exec(
+        rscript, "--quiet", "IRiR.R",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
         cwd=str(ROOT),
     )
 
-    for line in proc.stdout:  # type: ignore[union-attr]
-        stripped = line.rstrip()
-        if stripped and not any(stripped.startswith(p) or p in stripped for p in _SUPPRESS):
-            yield f"data: {json.dumps({'line': stripped})}\n\n"
+    async for raw in proc.stdout:  # type: ignore[union-attr]
+        line = raw.decode("utf-8", errors="replace").rstrip()
+        if line and not any(line.startswith(p) or p in line for p in _SUPPRESS):
+            yield f"data: {json.dumps({'line': line})}\n\n"
 
-    proc.wait()
+    await proc.wait()
     # Consume the uploaded grunnlagsdata — it was applied by R (or skipped on failure).
     # Either way, clear it so future runs are not silently affected.
     if _UPLOADED_GRUNN.exists():
