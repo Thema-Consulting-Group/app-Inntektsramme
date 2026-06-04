@@ -216,7 +216,7 @@
             <!-- Run + Download buttons -->
             <div class="px-3 pb-4 pt-2 border-t border-slate-100 flex gap-2">
               <button @click="runPipeline()" :disabled="pipelineRunning" class="btn-primary flex-1">
-                <span x-show="!pipelineRunning">Start ny kjøring · med disse inndataene</span>
+                <span x-show="!pipelineRunning">Start</span>
                 <span x-show="pipelineRunning" class="flex items-center justify-center gap-2">
                   <span class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
                   Kjører …
@@ -225,8 +225,8 @@
               <button @click="downloadRun(_runName())"
                       :disabled="!latestRun"
                       title="Last ned kjøring som zip"
-                      class="btn-secondary shrink-0 px-3">
-                ⬇
+                      class="btn-secondary flex-1">
+                ⬇ Last ned
               </button>
             </div>
           </div>
