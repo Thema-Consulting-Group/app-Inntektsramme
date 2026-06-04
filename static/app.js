@@ -511,7 +511,18 @@ function dashboard() {
         this.irColumns = this.irTable.length ? Object.keys(this.irTable[0]) : [];
         this.showToast('Inntektsramme oppdatert');
       } catch (e) {
-        this.globalError = e.message;
+        // "No results yet" is expected on a fresh deploy — don't show as a red error
+        const noResults = e.message && (
+          e.message.includes('No Run_*') ||
+          e.message.includes('Results/') ||
+          e.message.includes('Ingen resultater')
+        );
+        if (noResults) {
+          this.irTable = [];
+          this.irMeta  = null;
+        } else {
+          this.globalError = e.message;
+        }
       } finally {
         this.loading = false;
       }

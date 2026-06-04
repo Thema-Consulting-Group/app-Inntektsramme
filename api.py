@@ -428,6 +428,10 @@ def get_ir_table(run_name: str | None = Query(default=None)):
 # /api/run-pipeline  — SSE streaming of R pipeline
 # ---------------------------------------------------------------------------
 
+# Set to True to stream all R output to the browser (useful for debugging crashes).
+# When False, only [STEG] progress markers and errors are forwarded.
+_PIPELINE_VERBOSE = False
+
 _SUPPRESS = (
     "── Attaching", "✔ ", "✖ ", "── Conflicts", "ℹ ", "Registered S3",
     "The following object", "The following packages", "tidyverse",
@@ -480,12 +484,30 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
         cwd=str(ROOT),
     )
 
+    error_buffer: list[str] = []  # accumulate all lines; flushed to client if R fails
+
     async for raw in proc.stdout:  # type: ignore[union-attr]
         line = raw.decode("utf-8", errors="replace").rstrip()
-        if line and not any(line.startswith(p) or p in line for p in _SUPPRESS):
-            yield f"data: {json.dumps({'line': line})}\n\n"
+        if not line:
+            continue
+        is_steg = line.startswith("[STEG]") or line.startswith("[file]") or line.startswith("[preflight")
+        is_suppressed = any(line.startswith(p) or p in line for p in _SUPPRESS)
+        if _PIPELINE_VERBOSE:
+            if not is_suppressed:
+                yield f"data: {json.dumps({'line': line})}\n\n"
+        else:
+            if is_steg:
+                yield f"data: {json.dumps({'line': line})}\n\n"
+            elif not is_suppressed:
+                error_buffer.append(line)
 
     await proc.wait()
+
+    # If R failed and we were in quiet mode, flush the buffered output so the
+    # user can see what went wrong (same behaviour as _PIPELINE_VERBOSE = True).
+    if proc.returncode != 0 and not _PIPELINE_VERBOSE:
+        for buffered in error_buffer:
+            yield f"data: {json.dumps({'line': buffered})}\n\n"
     # Consume the uploaded grunnlagsdata — it was applied by R (or skipped on failure).
     # Either way, clear it so future runs are not silently affected.
     if _UPLOADED_GRUNN.exists():
