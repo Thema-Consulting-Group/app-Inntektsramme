@@ -464,8 +464,17 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
 
     yield f"data: {json.dumps({'line': f'[preflight] Rscript: {rscript}'})}\n\n"
 
+    # On Linux wrap with stdbuf so R flushes stdout line-by-line through the pipe.
+    # Without this, R buffers cat() output in a 4–64KB kernel pipe buffer and
+    # all SSE events arrive at once at the end (visible on Railway).
+    import platform
+    if platform.system() != "Windows" and shutil.which("stdbuf"):
+        cmd = ["stdbuf", "-oL", rscript, "--quiet", "IRiR.R"]
+    else:
+        cmd = [rscript, "--quiet", "IRiR.R"]
+
     proc = await asyncio.create_subprocess_exec(
-        rscript, "--quiet", "IRiR.R",
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(ROOT),
