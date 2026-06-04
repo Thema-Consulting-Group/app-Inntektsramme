@@ -41,9 +41,9 @@
   <!-- Sidebar -->
   <aside class="flex flex-col w-60 shrink-0 bg-[#285064] text-slate-100 select-none">
     <!-- Logo -->
-    <div class="flex items-center gap-3 px-5 py-5 border-b border-[#1a3d50]">
-      <div class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white font-bold text-sm">IR</div>
-      <span class="font-semibold text-sm tracking-wide">Inntektsramme</span>
+    <div class="px-5 py-5 border-b border-[#1a3d50]">
+      <p class="text-2xl font-bold tracking-tight text-white leading-none">TIM</p>
+      <p class="text-[10px] text-[#A3D9FF]/70 tracking-wide mt-0.5 leading-snug">THEMAs inntektsrammemodell</p>
     </div>
 
     <!-- Nav -->
@@ -64,6 +64,11 @@
         </button>
       </template>
     </nav>
+
+    <!-- Thema logo -->
+    <div class="flex justify-center py-5 border-t border-[#1a3d50]">
+      <img src="/favicon.ico" alt="Thema" class="w-10 h-10 opacity-80" />
+    </div>
 
     <!-- Run indicator -->
     <div class="px-4 py-3 border-t border-[#1a3d50]">
@@ -176,6 +181,17 @@
             <div class="border-t border-slate-100 mx-3 mt-1"></div>
             <div class="px-3 py-2">
               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-2">Verdijusteringer (CSV)</p>
+              <!-- Generate button -->
+              <button @click="generateGrunnlagsdata()"
+                      :disabled="generatingGrunn"
+                      class="btn-secondary w-full text-xs mb-1.5 flex items-center justify-center gap-1.5"
+                      title="Last ned grunnlagsdata fra base-data (uten å kjøre full modell)">
+                <span x-show="!generatingGrunn">⬇ Generer grunnlagsdata</span>
+                <span x-show="generatingGrunn" class="flex items-center gap-1.5">
+                  <span class="w-3 h-3 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></span>
+                  Genererer…
+                </span>
+              </button>
               <label
                 class="group flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer transition-colors"
                 :class="grunnlag.active
@@ -753,7 +769,7 @@
                 </div>
               </div>
               <p x-show="dea.excludeIds.length" class="text-xs text-slate-400 mb-2"
-                 x-text="dea.result.length + ' selskaper vist (' + dea.excludeIds.length + ' fjernet)'"></p>
+                 x-text="(dea.result?.length ?? 0) + ' selskaper vist (' + dea.excludeIds.length + ' fjernet)'"></p>
               <div id="eff-chart" style="height: 520px; overflow-y: auto;"></div>
             </div>
           </div>
@@ -944,7 +960,7 @@
               <template x-for="(f, i) in _elasticityFields()" :key="f.key">
                 <tr>
                   <td class="font-medium text-slate-700" x-text="f.label"></td>
-                  <td class="font-mono text-xs" x-text="f.value(elas.estimated).toFixed(5)"></td>
+                  <td class="font-mono text-xs" x-text="elas.estimated ? f.value(elas.estimated).toFixed(5) : '—'"></td>
                   <td class="font-mono text-xs text-slate-400"
                       x-text="(elas.estimated?.r2?.[f.key.replace('_per_mnok','').replace('ld_','ld_').replace('rd_wv_','rd_')] ?? '—')"></td>
                   <td class="font-mono text-xs text-slate-400"
@@ -1032,6 +1048,6 @@
   </div>
 </div>
 
-<script src="/app.js"></script>
+<script src="/app2.js"></script>
 </body>
 </html>
