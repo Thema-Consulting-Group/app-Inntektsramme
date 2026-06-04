@@ -490,8 +490,9 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
         line = raw.decode("utf-8", errors="replace").rstrip()
         if not line:
             continue
-        is_steg = line.startswith("[STEG]") or line.startswith("[file]") or line.startswith("[preflight")
-        is_suppressed = any(line.startswith(p) or p in line for p in _SUPPRESS)
+        is_steg = line.startswith("[STEG]")
+        is_debug = line.startswith("[file]") or line.startswith("[preflight") or line.startswith("[diag") or line.startswith("[msg") or line.startswith("[install") or line.startswith("[override")
+        is_suppressed = is_debug or any(line.startswith(p) or p in line for p in _SUPPRESS)
         if _PIPELINE_VERBOSE:
             if not is_suppressed:
                 yield f"data: {json.dumps({'line': line})}\n\n"

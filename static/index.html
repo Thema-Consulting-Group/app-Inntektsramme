@@ -222,7 +222,7 @@
                   Kjører …
                 </span>
               </button>
-              <button @click="downloadRun(activeRun)"
+              <button @click="downloadRun(_runName())"
                       :disabled="!latestRun"
                       title="Last ned kjøring som zip"
                       class="btn-secondary shrink-0 px-3">
