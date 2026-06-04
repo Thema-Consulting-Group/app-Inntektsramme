@@ -498,16 +498,21 @@ function dashboard() {
             }
           }
         };
-        // onerror fires on normal server-side close too — just clean up silently.
-        // Real errors come through msg.error / msg.done events above.
+        // onerror fires when server closes the SSE connection — even after a successful run.
+        // Do NOT call es.close() synchronously: it cancels any buffered onmessage(done) event.
+        // Instead, defer 200ms (SSE reconnect default is ~3s, so this is safe).
+        // If onmessage(done) fires in the meantime it sets pipelineDone=true and we skip reset.
         es.onerror = () => {
-          es.close();
           if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
-          if (!pipelineDone && this.pipelineRunning) {
-            this.pipelineRunning  = false;
-            this.pipelineShowDone = false;
-            this.pipelineProgress = 0;
-          }
+          setTimeout(() => {
+            if (!pipelineDone && this.pipelineRunning) {
+              es.close();
+              this.pipelineRunning  = false;
+              this.pipelineShowDone = false;
+              this.pipelineProgress = 0;
+            }
+            // If pipelineDone=true, onmessage(done) already called es.close()
+          }, 200);
         };
       } catch (e) {
         if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }

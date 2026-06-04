@@ -796,6 +796,57 @@ def download_run(run_name: str | None = Query(default=None)):
 
 
 # ---------------------------------------------------------------------------
+# /api/generate-grunnlagsdata  — run data-load only, return CSV for editing
+# ---------------------------------------------------------------------------
+
+@app.get("/api/generate-grunnlagsdata")
+async def generate_grunnlagsdata():
+    """Run generate_grunnlagsdata.R (data loading only, no DEA) and save the
+    result as the active grunnlagsdata override so it appears in the UI slot."""
+    rscript = shutil.which("Rscript")
+    if not rscript:
+        candidates = sorted(glob.glob(r"C:\Program Files\R\R-*\bin\Rscript.exe"), reverse=True)
+        if candidates:
+            rscript = candidates[0]
+    if not rscript:
+        raise HTTPException(500, "Finner ikke Rscript på PATH")
+
+    import platform, tempfile
+    script = str(ROOT / "generate_grunnlagsdata.R")
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        if platform.system() != "Windows" and shutil.which("stdbuf"):
+            cmd = ["stdbuf", "-oL", rscript, "--quiet", script, tmp_path]
+        else:
+            cmd = [rscript, "--quiet", script, tmp_path]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(ROOT),
+        )
+        _, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace")
+            raise HTTPException(500, f"R feilet: {err[:2000]}")
+
+        # Place as the active grunnlagsdata override (same slot as a user upload)
+        import shutil as _shutil
+        _shutil.copy2(tmp_path, str(_UPLOADED_GRUNN))
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    size = _UPLOADED_GRUNN.stat().st_size
+    today = __import__("datetime").date.today().isoformat()
+    return {"ok": True, "filename": f"{today}_grunnlagsdata.csv", "size": size}
+
+
+# ---------------------------------------------------------------------------
 # Static files — must be last
 # ---------------------------------------------------------------------------
 
