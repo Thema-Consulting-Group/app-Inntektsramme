@@ -7,6 +7,7 @@ Then open:  http://localhost:8000
 from __future__ import annotations
 
 import glob
+import io
 import json
 import math
 import os
@@ -14,13 +15,13 @@ import re
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import numpy as np
 import pandas as pd
 import yaml
-import io
 import secrets
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -737,6 +738,32 @@ def run_frontier_scenario(body: ScenarioRequest):
         }
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+# ---------------------------------------------------------------------------
+# /api/download-run  — download a run directory as a zip
+# ---------------------------------------------------------------------------
+
+@app.get("/api/download-run")
+def download_run(run_name: str | None = Query(default=None)):
+    """Stream the latest (or named) Results/Run_* directory as a zip file."""
+    run_dir = _run_dir_from_name(run_name)
+    if run_dir is None:
+        raise HTTPException(404, "Ingen kjøring funnet.")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for file in sorted(run_dir.rglob("*")):
+            if file.is_file():
+                zf.write(file, arcname=Path(run_dir.name) / file.relative_to(run_dir))
+    buf.seek(0)
+
+    zip_name = f"{run_dir.name}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+    )
 
 
 # ---------------------------------------------------------------------------

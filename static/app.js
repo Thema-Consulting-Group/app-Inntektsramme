@@ -403,6 +403,11 @@ function dashboard() {
       this.showToast('Grunnlagsdata fjernet – bruker siste R-kjøring');
     },
 
+    downloadRun(runName) {
+      const param = runName ? `?run_name=${encodeURIComponent(runName)}` : '';
+      window.location.href = `/api/download-run${param}`;
+    },
+
     // ─── Tab 1 ───────────────────────────────
 
     async runPipeline() {
