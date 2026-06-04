@@ -424,11 +424,11 @@ function dashboard() {
         'N\u00f8kkeltall og resultater':                    99,
       };
       this.pipelineRunning  = true;
-      this.pipelineLogs     = ['Starter R-pipeline…'];
+      this.pipelineLogs     = [];
       this.pipelineProgress = 3;
       this.pipelineStage    = 'Starter R-pipeline…';
       this.pipelineDetail   = '';
-      this.pipelineShowDone = false;
+      this.pipelineShowDone = true;
       this.globalError      = '';
 
       try {
@@ -436,8 +436,14 @@ function dashboard() {
         es.onmessage = async (e) => {
           const msg = JSON.parse(e.data);
           if (msg.line) {
-            this.pipelineLogs.push(msg.line);
-            if (msg.line.startsWith('[STEG]')) {
+            const isSteg  = msg.line.startsWith('[STEG]');
+            const isError = msg.line.toLowerCase().includes('error') ||
+                            msg.line.toLowerCase().includes('feil') ||
+                            msg.line.toLowerCase().includes('warning');
+            // Only buffer non-progress lines that look like errors;
+            // this keeps the log box hidden during normal quiet-mode runs.
+            if (!isSteg && isError) this.pipelineLogs.push(msg.line);
+            if (isSteg) {
               const label = msg.line.replace('[STEG]', '').trim();
               // Clear any running tick timer before applying next stage
               if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
@@ -452,7 +458,7 @@ function dashboard() {
                 }, 1000);
               }
             } else {
-              this.pipelineDetail = msg.line;
+              if (isError) this.pipelineDetail = msg.line;
             }
           }
           if (msg.error) { this.globalError = msg.error; es.close(); this.pipelineRunning = false; }
@@ -471,12 +477,7 @@ function dashboard() {
               await this.loadIrTable();
               await this.loadDeaCompanies();
               await this.loadProgCompanies();
-              setTimeout(() => {
-                this.pipelineShowDone = false;
-                this.pipelineProgress = 0;
-                this.pipelineStage    = '';
-                this.pipelineDetail   = '';
-              }, 3000);
+              // Keep the 100% bar visible — it disappears when the next run starts
             } else {
               this.globalError      = `Pipeline feilet (exit ${msg.code}). Se logg nedenfor.`;
               this.pipelineShowDone = false;
