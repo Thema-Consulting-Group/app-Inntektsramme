@@ -7,6 +7,13 @@ Then open:  http://localhost:8000
 from __future__ import annotations
 
 import asyncio
+import sys
+
+# Windows: SelectorEventLoop (default) doesn't support subprocesses.
+# Switch to ProactorEventLoop before uvicorn starts the loop.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 import glob
 import io
 import json
@@ -234,22 +241,42 @@ async def upload_grunnlagsdata(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(400, "Kun CSV-filer støttes.")
     content = await file.read()
+
+    # Decode, stripping any UTF-8 BOM that Excel / the browser download added.
     try:
-        sample = content[:4096].decode("utf-8-sig", errors="replace")
-        first_line = sample.split("\n")[0].lower()
-        if "orgn" not in first_line and "id" not in first_line:
-            raise HTTPException(400, "Filen ser ikke ut som grunnlagsdata (mangler 'orgn'/'id' kolonner).")
-    except HTTPException:
-        raise
+        text = content.decode("utf-8-sig", errors="replace")
     except Exception as e:
         raise HTTPException(400, f"Kunne ikke lese filen: {e}")
-    _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
-    _UPLOADED_GRUNN.write_bytes(content)
+
+    first_line = text.split("\n", 1)[0]
+    if "orgn" not in first_line.lower() and "id" not in first_line.lower():
+        raise HTTPException(400, "Filen ser ikke ut som grunnlagsdata (mangler 'orgn'/'id' kolonner).")
+
+    # Sniff the delimiter. The app's own "↓ CSV" buttons and Excel (Norwegian
+    # locale) export *semicolon*-separated, but R's read.csv() and every pandas
+    # reader downstream assume *comma*. A semicolon file is parsed as a single
+    # column → the R override step silently matches 0 rows and changes nothing.
+    # Normalise to canonical comma-separated UTF-8 (no BOM, no index) so the file
+    # round-trips correctly no matter what the user uploaded.
+    sep = ";" if first_line.count(";") > first_line.count(",") else ","
     try:
-        n_rows = len(pd.read_csv(io.BytesIO(content)))
-    except Exception:
-        n_rows = -1
-    return {"ok": True, "filename": file.filename, "rows": n_rows}
+        df = pd.read_csv(io.StringIO(text), sep=sep)
+    except Exception as e:
+        raise HTTPException(400, f"Kunne ikke tolke CSV (skilletegn '{sep}'): {e}")
+
+    # Fail loudly if the key columns didn't parse — prevents a silent no-op run.
+    missing = [c for c in ("orgn", "y") if c not in df.columns]
+    if missing:
+        raise HTTPException(
+            400,
+            f"Fant ikke kolonnene {missing} etter innlesing "
+            f"(tolket skilletegn '{sep}', kolonner: {list(df.columns)[:6]}…). "
+            "Sjekk at filen er en grunnlagsdata-CSV.",
+        )
+
+    _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(_UPLOADED_GRUNN, index=False, encoding="utf-8")
+    return {"ok": True, "filename": file.filename, "rows": len(df)}
 
 
 @app.delete("/api/upload-grunnlagsdata")
@@ -328,6 +355,11 @@ def _safe_csv_filename(filename: str) -> bool:
 @app.get("/api/run-csv/files")
 def list_run_csv_files(run_name: str | None = Query(None)):
     """Return all .csv files present in the run folder."""
+    # Special sentinel: expose the uploaded/generated grunnlagsdata
+    if run_name == "__uploaded__":
+        if _UPLOADED_GRUNN.exists():
+            return {"files": [{"filename": _UPLOADED_GRUNN.name, "size": _UPLOADED_GRUNN.stat().st_size}], "run_dir": "__uploaded__"}
+        return {"files": [], "run_dir": "__uploaded__"}
     run_dir = _run_dir_from_name(run_name)
     if run_dir is None:
         return {"files": [], "run_dir": ""}
@@ -342,6 +374,13 @@ def list_run_csv_files(run_name: str | None = Query(None)):
 def get_run_csv(filename: str = Query(...), run_name: str | None = Query(None)):
     if not _safe_csv_filename(filename):
         raise HTTPException(400, "Invalid filename")
+    if run_name == "__uploaded__":
+        csv_path = _UPLOADED_GRUNN
+        if not csv_path.exists():
+            raise HTTPException(404, "Ingen generert grunnlagsdata funnet")
+        df = pd.read_csv(csv_path)
+        rows = [{k: (None if (isinstance(v, float) and math.isnan(v)) else v) for k, v in row.items()} for row in df.to_dict(orient="records")]
+        return {"columns": list(df.columns), "rows": rows, "run_dir": "__uploaded__"}
     run_dir = _run_dir_from_name(run_name)
     if run_dir is None:
         raise HTTPException(404, "Run not found")
@@ -359,6 +398,10 @@ def get_run_csv(filename: str = Query(...), run_name: str | None = Query(None)):
 def put_run_csv(filename: str = Query(...), run_name: str = Query(...), body: CsvSaveRequest = ...):
     if not _safe_csv_filename(filename):
         raise HTTPException(400, "Invalid filename")
+    if run_name == "__uploaded__":
+        df = pd.DataFrame(body.rows)
+        df.to_csv(_UPLOADED_GRUNN, index=False)
+        return {"ok": True, "rows": len(df), "path": str(_UPLOADED_GRUNN)}
     run_dir = _run_dir_from_name(run_name)
     if run_dir is None:
         raise HTTPException(404, "Run not found")
@@ -477,17 +520,38 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
     else:
         cmd = [rscript, "--quiet", "IRiR.R"]
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        cwd=str(ROOT),
-    )
+    # Use subprocess.Popen + thread queue — asyncio.create_subprocess_exec
+    # requires ProactorEventLoop on Windows which uvicorn doesn't use.
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-    error_buffer: list[str] = []  # accumulate all lines; flushed to client if R fails
+    def _read_proc() -> int:
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=str(ROOT),
+            )
+            for raw in proc.stdout:  # type: ignore[union-attr]
+                line = raw.decode("utf-8", errors="replace").rstrip()
+                loop.call_soon_threadsafe(queue.put_nowait, line)
+            proc.wait()
+            return proc.returncode if proc.returncode is not None else 1
+        except Exception as exc:
+            loop.call_soon_threadsafe(queue.put_nowait, f"[ERROR] {exc}")
+            return 1
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
 
-    async for raw in proc.stdout:  # type: ignore[union-attr]
-        line = raw.decode("utf-8", errors="replace").rstrip()
+    fut = loop.run_in_executor(None, _read_proc)
+
+    error_buffer: list[str] = []
+
+    while True:
+        line = await queue.get()
+        if line is None:
+            break
         if not line:
             continue
         is_steg = line.startswith("[STEG]")
@@ -502,18 +566,18 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
             elif not is_suppressed:
                 error_buffer.append(line)
 
-    await proc.wait()
+    returncode = await fut
 
     # If R failed and we were in quiet mode, flush the buffered output so the
     # user can see what went wrong (same behaviour as _PIPELINE_VERBOSE = True).
-    if proc.returncode != 0 and not _PIPELINE_VERBOSE:
+    if returncode != 0 and not _PIPELINE_VERBOSE:
         for buffered in error_buffer:
             yield f"data: {json.dumps({'line': buffered})}\n\n"
     # Consume the uploaded grunnlagsdata — it was applied by R (or skipped on failure).
     # Either way, clear it so future runs are not silently affected.
     if _UPLOADED_GRUNN.exists():
         _UPLOADED_GRUNN.unlink()
-    yield f"data: {json.dumps({'done': True, 'code': proc.returncode})}\n\n"
+    yield f"data: {json.dumps({'done': True, 'code': returncode})}\n\n"
 
 
 @app.get("/api/run-pipeline")
@@ -823,16 +887,19 @@ async def generate_grunnlagsdata():
         else:
             cmd = [rscript, "--quiet", script, tmp_path]
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(ROOT),
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=str(ROOT),
+            ),
         )
-        _, stderr = await proc.communicate()
 
-        if proc.returncode != 0:
-            err = stderr.decode("utf-8", errors="replace")
+        if result.returncode != 0:
+            err = result.stderr.decode("utf-8", errors="replace")
             raise HTTPException(500, f"R feilet: {err[:2000]}")
 
         # Place as the active grunnlagsdata override (same slot as a user upload)

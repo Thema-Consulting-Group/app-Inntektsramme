@@ -410,7 +410,10 @@ function dashboard() {
       try {
         const data = await this.api('GET', '/api/generate-grunnlagsdata');
         this.grunnlag = { active: true, fileName: data.filename, size: data.size, uploading: false, dragOver: false };
-        this.showToast('Grunnlagsdata generert – klar for redigering eller kjøring');
+        this.showToast('Grunnlagsdata generert – tilgjengelig i Rediger CSV-filer');
+        // Load it into the CSV editor automatically
+        this.csvEdit.file = '';
+        await this.loadRunCsvFiles('__uploaded__');
       } catch (e) {
         this.globalError = e.message;
       } finally {
@@ -498,16 +501,21 @@ function dashboard() {
             }
           }
         };
-        // onerror fires on normal server-side close too — just clean up silently.
-        // Real errors come through msg.error / msg.done events above.
+        // onerror fires when server closes the SSE connection — even after a successful run.
+        // Do NOT call es.close() synchronously: it cancels any buffered onmessage(done) event.
+        // Instead, defer 200ms (SSE reconnect default is ~3s, so this is safe).
+        // If onmessage(done) fires in the meantime it sets pipelineDone=true and we skip reset.
         es.onerror = () => {
-          es.close();
           if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
-          if (!pipelineDone && this.pipelineRunning) {
-            this.pipelineRunning  = false;
-            this.pipelineShowDone = false;
-            this.pipelineProgress = 0;
-          }
+          setTimeout(() => {
+            if (!pipelineDone && this.pipelineRunning) {
+              es.close();
+              this.pipelineRunning  = false;
+              this.pipelineShowDone = false;
+              this.pipelineProgress = 0;
+            }
+            // If pipelineDone=true, onmessage(done) already called es.close()
+          }, 200);
         };
       } catch (e) {
         if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
@@ -820,16 +828,24 @@ function dashboard() {
     // ─── Tab 3 ───────────────────────────────
 
     // ── CSV editor ───────────────────────────
-    async loadRunCsvFiles() {
-      const run = this.selectedRun || '';
+    async loadRunCsvFiles(runOverride) {
+      const run = runOverride ?? this.selectedRun ?? '';
       const qs  = run ? `?run_name=${encodeURIComponent(run)}` : '';
       try {
         const data = await this.api('GET', `/api/run-csv/files${qs}`);
-        this.csvEdit.availableFiles = data.files ?? [];
-        // Auto-select first file if none chosen or previous choice gone
-        const names = this.csvEdit.availableFiles.map(f => f.filename);
-        if (!names.includes(this.csvEdit.file)) {
-          this.csvEdit.file = names[0] ?? '';
+        const runTag = data.run_dir ?? run ?? '';
+        const files  = (data.files ?? []).map(f => ({ ...f, runTag }));
+        // When loading __uploaded__, append/replace that entry; keep run files
+        if (runOverride === '__uploaded__') {
+          const kept = this.csvEdit.availableFiles.filter(f => f.runTag !== '__uploaded__');
+          this.csvEdit.availableFiles = [...kept, ...files];
+          if (files.length) this.csvEdit.file = files[0].filename;
+        } else {
+          this.csvEdit.availableFiles = files;
+          const names = files.map(f => f.filename);
+          if (!names.includes(this.csvEdit.file)) {
+            this.csvEdit.file = names[0] ?? '';
+          }
         }
       } catch(e) { /* silent */ }
     },
@@ -838,7 +854,8 @@ function dashboard() {
       if (!this.csvEdit.file) return;
       this.csvEdit.loading = true;
       this.csvEdit.dirty   = false;
-      const run = this.selectedRun || '';
+      const entry = this.csvEdit.availableFiles.find(f => f.filename === this.csvEdit.file);
+      const run = entry?.runTag || this.selectedRun || '';
       const qs  = `?filename=${encodeURIComponent(this.csvEdit.file)}` + (run ? `&run_name=${encodeURIComponent(run)}` : '');
       try {
         const data = await this.api('GET', `/api/run-csv${qs}`);
@@ -855,7 +872,9 @@ function dashboard() {
     async saveRunCsv() {
       if (!this.csvEdit.runName) return;
       this.csvEdit.saving = true;
-      const qs = `?filename=${encodeURIComponent(this.csvEdit.file)}&run_name=${encodeURIComponent(this.csvEdit.runName)}`;
+      const entry  = this.csvEdit.availableFiles.find(f => f.filename === this.csvEdit.file);
+      const runTag = entry?.runTag || this.csvEdit.runName || '';
+      const qs = `?filename=${encodeURIComponent(this.csvEdit.file)}&run_name=${encodeURIComponent(runTag)}`;
       try {
         await this.api('PUT', `/api/run-csv${qs}`, { rows: this.csvEdit.rows });
         this.csvEdit.dirty = false;

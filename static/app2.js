@@ -410,7 +410,10 @@ function dashboard() {
       try {
         const data = await this.api('GET', '/api/generate-grunnlagsdata');
         this.grunnlag = { active: true, fileName: data.filename, size: data.size, uploading: false, dragOver: false };
-        this.showToast('Grunnlagsdata generert – klar for redigering eller kjøring');
+        this.showToast('Grunnlagsdata generert – tilgjengelig i Rediger CSV-filer');
+        // Load it into the CSV editor automatically
+        this.csvEdit.file = '';
+        await this.loadRunCsvFiles('__uploaded__');
       } catch (e) {
         this.globalError = e.message;
       } finally {
@@ -825,12 +828,13 @@ function dashboard() {
     // ─── Tab 3 ───────────────────────────────
 
     // ── CSV editor ───────────────────────────
-    async loadRunCsvFiles() {
-      const run = this.selectedRun || '';
+    async loadRunCsvFiles(runOverride) {
+      const run = runOverride ?? this.selectedRun ?? '';
       const qs  = run ? `?run_name=${encodeURIComponent(run)}` : '';
       try {
         const data = await this.api('GET', `/api/run-csv/files${qs}`);
         this.csvEdit.availableFiles = data.files ?? [];
+        this.csvEdit.runName = data.run_dir ?? '';
         // Auto-select first file if none chosen or previous choice gone
         const names = this.csvEdit.availableFiles.map(f => f.filename);
         if (!names.includes(this.csvEdit.file)) {

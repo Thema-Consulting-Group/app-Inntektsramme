@@ -86,7 +86,22 @@
   .uploaded_grunn <- "./Data/grunnlagsdata_uploaded.csv"
   if (file.exists(.uploaded_grunn)) {
     cat("[override] Loading grunnlagsdata overrides from", .uploaded_grunn, "\n")
-    .ov <- read.csv(.uploaded_grunn, stringsAsFactors = FALSE, check.names = FALSE)
+    # Sniff the delimiter — a file saved by Excel (Norwegian locale) or the
+    # app's "↓ CSV" button is semicolon-separated; read.csv() defaults to comma
+    # and would parse it as a single column, silently applying 0 overrides.
+    # fileEncoding="UTF-8-BOM" also drops any leading BOM.
+    .first <- readLines(.uploaded_grunn, n = 1, warn = FALSE)
+    .sep <- if (lengths(regmatches(.first, gregexpr(";", .first))) >
+                lengths(regmatches(.first, gregexpr(",", .first)))) ";" else ","
+    .ov <- read.csv(.uploaded_grunn, sep = .sep, stringsAsFactors = FALSE,
+                    check.names = FALSE, fileEncoding = "UTF-8-BOM")
+    cat("[override] Parsed", nrow(.ov), "rows x", ncol(.ov),
+        "cols (separator '", .sep, "')\n", sep = "")
+    if (!("orgn" %in% names(.ov)) || !("y" %in% names(.ov))) {
+      stop("[override] grunnlagsdata_uploaded.csv mangler 'orgn'/'y' etter innlesing ",
+           "(separator '", .sep, "', kolonner: ",
+           paste(head(names(.ov)), collapse = ", "), ") - sjekk skilletegn/format.")
+    }
     .ov$orgn <- as.integer(.ov$orgn)
     # Columns to update: everything present in both dat and the override file,
     # excluding row-index / key columns that must not be changed.
