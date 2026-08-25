@@ -837,6 +837,202 @@ def run_frontier_scenario(body: ScenarioRequest):
 # /api/download-run  — download a run directory as a zip
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# /api/analyse  — KPI-er og figurer per selskap og år (inntektsrammeanalysen)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/analyse")
+def get_analyse(
+    orgn: int = Query(...),
+    aar: int = Query(...),
+    run_name: str | None = Query(default=None),
+    recalibrate: bool = Query(default=True),
+    bfv_rebase: str = Query(default="both"),
+):
+    """Datagrunnlag for analysepanelet: inntektsramme, avkastning på nettkapital,
+    effektivitet per trinn og frontselskap per nettnivå."""
+    from analyse import build_analyse  # noqa: PLC0415
+
+    if bfv_rebase not in ("none", "bfv", "both"):
+        raise HTTPException(400, "bfv_rebase må være 'none', 'bfv' eller 'both'.")
+    try:
+        return _clean(build_analyse(
+            orgn=orgn, year=aar, run_name=run_name,
+            recalibrate=recalibrate, bfv_rebase=bfv_rebase,
+        ))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/analyse/tidsserie")
+def get_analyse_tidsserie(
+    orgn: int = Query(...),
+    run_name: str | None = Query(default=None),
+    recalibrate: bool = Query(default=True),
+    bfv_rebase: str = Query(default="both"),
+    aar_fra: int | None = Query(default=None),
+    aar_til: int | None = Query(default=None),
+):
+    """Tidsserieanalyse for ett selskap: effektivitetsutvikling, nøkkeltall med
+    CAGR, frontselskap over tid og kostnadsutvikling."""
+    from analyse import build_tidsserie  # noqa: PLC0415
+
+    if bfv_rebase not in ("none", "bfv", "both"):
+        raise HTTPException(400, "bfv_rebase må være 'none', 'bfv' eller 'both'.")
+    try:
+        return _clean(build_tidsserie(
+            orgn=orgn, run_name=run_name, recalibrate=recalibrate,
+            bfv_rebase=bfv_rebase, aar_fra=aar_fra, aar_til=aar_til,
+        ))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/analyse/fusjon")
+def get_analyse_fusjon(
+    orgn_a: int = Query(...),
+    orgn_b: int = Query(...),
+    fusjonsaar: int = Query(...),
+    synergier: str = Query(default="15,33"),
+    innfasing_aar: int = Query(default=3),
+    en_gangs_kostnad: float = Query(default=0.0),
+    synergi_paa_utredning: bool = Query(default=False),
+    ny_enhet_i_front: bool = Query(default=True),
+    noekkeltall_aar: int | None = Query(default=None),
+    run_name: str | None = Query(default=None),
+    recalibrate: bool = Query(default=True),
+    bfv_rebase: str = Query(default="both"),
+):
+    """Fusjonsanalyse: effektivitet, inntektsramme, avkastning og frontselskap for
+    to selskap slått sammen, under ulike synergiforutsetninger."""
+    from fusjon import build_fusjon  # noqa: PLC0415
+
+    if bfv_rebase not in ("none", "bfv", "both"):
+        raise HTTPException(400, "bfv_rebase må være 'none', 'bfv' eller 'both'.")
+    try:
+        syn = tuple(float(x) for x in str(synergier).split(",") if str(x).strip())
+    except ValueError:
+        raise HTTPException(400, "synergier må være tall separert med komma, f.eks. '15,33'.")
+    if not syn:
+        raise HTTPException(400, "Oppgi minst ett synerginivå.")
+    if len(syn) > 4:
+        raise HTTPException(400, "Maks fire synerginivåer.")
+    if innfasing_aar < 1:
+        raise HTTPException(400, "innfasing_aar må være minst 1.")
+
+    try:
+        return _clean(build_fusjon(
+            orgn_a=orgn_a, orgn_b=orgn_b, fusjonsaar=fusjonsaar, synergier=syn,
+            innfasing_aar=innfasing_aar, en_gangs_kostnad=en_gangs_kostnad,
+            synergi_paa_utredning=synergi_paa_utredning,
+            ny_enhet_i_front=ny_enhet_i_front, noekkeltall_aar=noekkeltall_aar,
+            run_name=run_name, recalibrate=recalibrate, bfv_rebase=bfv_rebase,
+        ))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ---------------------------------------------------------------------------
+# /api/flerarsark  — inntektsrammearket framskrevet, ett ark per år
+# ---------------------------------------------------------------------------
+
+def _build_flerarsark(
+    run_name: str | None,
+    recalibrate: bool,
+    bfv_rebase: str,
+    align_basis: bool,
+    base_year_from_ark: bool,
+    aar_til: int | None,
+):
+    from flerarsark import DEFAULT_YEARS, build_flerarsark  # noqa: PLC0415
+
+    if bfv_rebase not in ("none", "bfv", "both"):
+        raise HTTPException(400, "bfv_rebase må være 'none', 'bfv' eller 'both'.")
+
+    years = DEFAULT_YEARS
+    if aar_til is not None:
+        years = [y for y in DEFAULT_YEARS if y <= aar_til]
+        if not years:
+            raise HTTPException(400, f"aar_til må være minst {DEFAULT_YEARS[0]}.")
+
+    return build_flerarsark(
+        run_name=run_name,
+        recalibrate=recalibrate,
+        bfv_rebase=bfv_rebase,
+        align_basis=align_basis,
+        base_year_from_ark=base_year_from_ark,
+        years=years,
+    )
+
+
+@app.get("/api/flerarsark")
+def get_flerarsark(
+    run_name: str | None = Query(default=None),
+    recalibrate: bool = Query(default=True),
+    bfv_rebase: str = Query(default="both"),
+    align_basis: bool = Query(default=True),
+    base_year_from_ark: bool = Query(default=True),
+    aar_til: int | None = Query(default=None),
+):
+    """Framskriv inntektsrammearket for alle selskaper — ett ark per år."""
+    try:
+        ark = _build_flerarsark(
+            run_name, recalibrate, bfv_rebase, align_basis, base_year_from_ark, aar_til
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    return {
+        "years": ark.years,
+        "summary": _df_to_records(ark.summary),
+        "sheets": {str(y): _df_to_records(ark.sheets[y]) for y in ark.years},
+        "columns": list(ark.sheets[ark.years[0]].columns),
+        "diagnostics": _clean(ark.diagnostics),
+    }
+
+
+@app.get("/api/flerarsark/excel")
+def download_flerarsark(
+    run_name: str | None = Query(default=None),
+    recalibrate: bool = Query(default=True),
+    bfv_rebase: str = Query(default="both"),
+    align_basis: bool = Query(default=True),
+    base_year_from_ark: bool = Query(default=True),
+    aar_til: int | None = Query(default=None),
+):
+    """Last ned flerårsarket som Excel — Sammendrag + ett ark per år."""
+    try:
+        ark = _build_flerarsark(
+            run_name, recalibrate, bfv_rebase, align_basis, base_year_from_ark, aar_til
+        )
+        data = ark.to_bytes()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    name = f"Inntektsrammeark {ark.years[0]}-{ark.years[-1]}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
 @app.get("/api/download-run")
 def download_run(run_name: str | None = Query(default=None)):
     """Stream the latest (or named) Results/Run_* directory as a zip file."""

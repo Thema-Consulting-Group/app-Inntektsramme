@@ -133,6 +133,7 @@ function dashboard() {
       { id: 'rme',      label: 'RME Modell',            icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>' },
       { id: 'prognose', label: 'Prognosebygger',         icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>' },
       { id: 'kostnader',label: 'Kostnader',              icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>' },
+      { id: 'analyse',  label: 'Analyse',                icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 6a1 1 0 011-1h.5a1 1 0 011 1v4.5a1 1 0 01-1 1H9a1 1 0 01-1-1V6zm4.5 3.5a1 1 0 011 1V14a1 1 0 01-1 1H12a1 1 0 01-1-1v-3.5a1 1 0 011-1h.5z" clip-rule="evenodd"/></svg>' },
       { id: 'frontier', label: 'Frontselskapsanalyse',   icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>' },
       { id: 'elasticities', label: 'Oppgaveelastisiteter', icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>' },
     ],
@@ -157,6 +158,42 @@ function dashboard() {
     irColumns:       [],
     irMeta:          null,
     irExpanded:      false,
+
+    // Analyse — KPI-panel per selskap og år (etter inntektsrammeanalysen)
+    anal: {
+      loading: false,
+      orgn:    '',
+      aar:     2027,
+      data:    null,
+      visning: 'aar',   // 'aar' | 'tidsserie' | 'fusjon'
+      ts:      null,
+      fus: {
+        orgn_b: '',
+        fusjonsaar: 2029,
+        synergier: '15,33',
+        innfasing_aar: 3,
+        en_gangs_kostnad: 0,
+        synergi_paa_utredning: false,
+        ny_enhet_i_front: true,
+        data: null,
+      },
+    },
+
+    // Flerårsark — inntektsrammearket framskrevet, ett ark per år
+    flerar: {
+      loading:     false,
+      years:       [],
+      activeYear:  null,
+      sheets:      {},
+      columns:     [],
+      summary:     [],
+      diagnostics: null,
+      expanded:    false,
+      // forutsetninger
+      aarTil:      2035,
+      recalibrate: true,
+      bfvRebase:   'both',
+    },
 
     /* ── Grunnlagsdata upload ────────────── */
     grunnlag: { active: false, fileName: '', size: 0, uploading: false, dragOver: false },
@@ -424,6 +461,340 @@ function dashboard() {
     downloadRun(runName) {
       const param = runName ? `?run_name=${encodeURIComponent(runName)}` : '';
       window.location.href = `/api/download-run${param}`;
+    },
+
+    // ─── Analyse ─────────────────────────────
+
+    async loadAnalyse() {
+      const a = this.anal;
+      if (!a.orgn) return;
+      a.loading = true;
+      this.globalError = '';
+      try {
+        const p = new URLSearchParams({ orgn: String(a.orgn), aar: String(a.aar) });
+        if (this.selectedRun) p.set('run_name', this.selectedRun);
+        a.data = await this.api('GET', `/api/analyse?${p.toString()}`);
+        a.ts = null;   // tidsserien gjelder ett selskap — hentes på nytt ved behov
+        if (a.visning === 'tidsserie') await this.loadTidsserie();
+        else this.$nextTick(() => this.renderAnalyseDonuts());
+      } catch (e) {
+        a.data = null;
+        this.globalError = e.message;
+      } finally {
+        a.loading = false;
+      }
+    },
+
+    // Switch between the single-year view and the time series
+    async settAnalyseVisning(v) {
+      this.anal.visning = v;
+      if (v === 'tidsserie') {
+        if (!this.anal.ts) await this.loadTidsserie();
+        else this.$nextTick(() => this.renderTidsserie());
+      } else if (v === 'fusjon') {
+        if (this.anal.fus.data) this.$nextTick(() => this.renderFusjon());
+      } else {
+        this.$nextTick(() => this.renderAnalyseDonuts());
+      }
+    },
+
+    async loadFusjon() {
+      const a = this.anal, f = a.fus;
+      if (!a.orgn || !f.orgn_b) return;
+      a.loading = true;
+      this.globalError = '';
+      try {
+        const p = new URLSearchParams({
+          orgn_a: String(a.orgn), orgn_b: String(f.orgn_b),
+          fusjonsaar: String(f.fusjonsaar), synergier: String(f.synergier),
+          innfasing_aar: String(f.innfasing_aar),
+          en_gangs_kostnad: String(f.en_gangs_kostnad || 0),
+          synergi_paa_utredning: f.synergi_paa_utredning ? 'true' : 'false',
+          ny_enhet_i_front: f.ny_enhet_i_front ? 'true' : 'false',
+        });
+        if (this.selectedRun) p.set('run_name', this.selectedRun);
+        f.data = await this.api('GET', `/api/analyse/fusjon?${p.toString()}`);
+        this.$nextTick(() => this.renderFusjon());
+      } catch (e) {
+        f.data = null;
+        this.globalError = e.message;
+      } finally {
+        a.loading = false;
+      }
+    },
+
+    renderFusjon() {
+      const d = this.anal.fus.data;
+      if (!d) return;
+      const yrs = d.aar;
+
+      // ── Vektet effektivitet: selskapene hver for seg mot fusjonsscenariene ──
+      const el = document.getElementById('fusjon-eff');
+      if (el) {
+        Plotly.react(el, d.effektivitet.linjer.map(l => ({
+          x: yrs, y: l.verdier,
+          name: l.navn,
+          mode: 'lines+markers',
+          line: { color: l.farge, width: 2, dash: l.strek },
+          marker: { size: 7, color: l.farge },
+          connectgaps: false,
+          hovertemplate: '%{x}: %{y:.1f} %<extra>' + l.navn + '</extra>',
+        })), {
+          ...BASE_LAYOUT,
+          margin: { t: 56, b: 40, l: 54, r: 16 },
+          height: 320,
+          hovermode: 'x unified',
+          legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'left',
+                    x: 0, font: { size: 10 } },
+          yaxis: { title: '%', gridcolor: '#f1f5f9', ticksuffix: ' %' },
+          xaxis: { dtick: 1, gridcolor: '#f8fafc' },
+          shapes: [{
+            type: 'line', x0: d.fusjonsaar, x1: d.fusjonsaar, yref: 'paper',
+            y0: 0, y1: 1, line: { color: '#cbd5e1', width: 1, dash: 'dot' },
+          }],
+          annotations: [{
+            x: d.fusjonsaar, y: 1, yref: 'paper', yanchor: 'bottom',
+            text: 'fusjon', showarrow: false,
+            font: { size: 9, color: '#94a3b8' },
+          }],
+        }, PLOTLY_CONFIG);
+      }
+
+      // ── Frontselskap for den fusjonerte enheten, per nettnivå ──
+      const scen = Object.keys(d.front)[0];
+      for (const [nivaa, key] of [['D-nett', 'dnett'], ['R-nett', 'rnett']]) {
+        const fe = document.getElementById(`fusjon-front-${key}`);
+        if (!fe) continue;
+        const serie = d.front[scen]?.[nivaa] ?? [];
+        // Samle unike frontselskap over alle år → én stablet serie hver
+        const navn = [];
+        serie.forEach(rows => (rows || []).forEach(r => {
+          if (!navn.some(n => n.navn === r.navn)) navn.push({ navn: r.navn, farge: r.farge });
+        }));
+        if (!navn.length) { Plotly.purge(fe); continue; }
+        Plotly.react(fe, navn.map(n => ({
+          x: yrs,
+          y: serie.map(rows => (rows || []).find(r => r.navn === n.navn)?.andel_pct ?? null),
+          name: n.navn,
+          type: 'bar',
+          marker: { color: n.farge, line: { color: '#ffffff', width: 2 } },
+          hovertemplate: '%{x}: %{y:.0f} %<extra>' + n.navn + '</extra>',
+        })), {
+          ...BASE_LAYOUT,
+          barmode: 'stack',
+          bargap: 0.15,
+          margin: { t: 54, b: 36, l: 40, r: 10 },
+          height: 260,
+          title: { text: nivaa, font: { size: 12, color: '#475569' }, x: 0.5, y: 0.97 },
+          legend: { orientation: 'h', yanchor: 'bottom', y: 1.0, xanchor: 'left',
+                    x: 0, font: { size: 9 } },
+          yaxis: { range: [0, 100], gridcolor: '#f1f5f9', ticksuffix: ' %' },
+          xaxis: { dtick: 2, gridcolor: '#f8fafc' },
+        }, PLOTLY_CONFIG);
+      }
+    },
+
+    async loadTidsserie() {
+      const a = this.anal;
+      if (!a.orgn) return;
+      a.loading = true;
+      this.globalError = '';
+      try {
+        const p = new URLSearchParams({ orgn: String(a.orgn) });
+        if (this.selectedRun) p.set('run_name', this.selectedRun);
+        a.ts = await this.api('GET', `/api/analyse/tidsserie?${p.toString()}`);
+        this.$nextTick(() => this.renderTidsserie());
+      } catch (e) {
+        a.ts = null;
+        this.globalError = e.message;
+      } finally {
+        a.loading = false;
+      }
+    },
+
+    renderTidsserie() {
+      const t = this.anal.ts;
+      if (!t) return;
+      const yrs = t.aar;
+
+      // ── Effektivitetsutvikling ──
+      const el = document.getElementById('analyse-ts-eff');
+      if (el) {
+        const traces = t.effektivitet.linjer.map(l => {
+          const y = t.effektivitet.serier[l.key];
+          const erVektet = l.key === 'vektet';
+          return {
+            x: yrs, y,
+            name: l.navn,
+            mode: erVektet ? 'lines+markers+text' : 'lines+markers',
+            line: { color: l.farge, width: l.bredde, dash: l.strek },
+            marker: { size: 8, color: l.farge },
+            // Selective direct labels: only the headline series gets numbers
+            text: erVektet ? y.map(v => v == null ? '' : `${v.toFixed(0)} %`) : undefined,
+            textposition: 'top center',
+            textfont: { size: 10, color: '#475569' },
+            connectgaps: false,
+            hovertemplate: '%{x}: %{y:.1f} %<extra>' + l.navn + '</extra>',
+          };
+        });
+        Plotly.react(el, traces, {
+          ...BASE_LAYOUT,
+          margin: { t: 46, b: 40, l: 52, r: 16 },
+          height: 300,
+          hovermode: 'x unified',
+          legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'left', x: 0 },
+          yaxis: { title: '%', gridcolor: '#f1f5f9', ticksuffix: ' %' },
+          xaxis: { dtick: 1, gridcolor: '#f8fafc' },
+        }, PLOTLY_CONFIG);
+      }
+
+      // ── Frontselskap over tid (stablede søyler per nettnivå) ──
+      for (const [nivaa, key] of [['D-nett', 'dnett'], ['R-nett', 'rnett']]) {
+        const fe = document.getElementById(`analyse-ts-front-${key}`);
+        if (!fe) continue;
+        const rows = t.front[nivaa] ?? [];
+        if (!rows.length) { Plotly.purge(fe); continue; }
+        Plotly.react(fe, rows.map(r => ({
+          x: yrs, y: r.andeler,
+          name: r.navn,
+          type: 'bar',
+          marker: { color: r.farge, line: { color: '#ffffff', width: 2 } },
+          hovertemplate: '%{x}: %{y:.1f} %<extra>' + r.navn + '</extra>',
+        })), {
+          ...BASE_LAYOUT,
+          barmode: 'stack',
+          bargap: 0.15,
+          margin: { t: 52, b: 36, l: 40, r: 10 },
+          height: 260,
+          title: { text: nivaa, font: { size: 12, color: '#475569' }, x: 0.5, y: 0.97 },
+          legend: { orientation: 'h', yanchor: 'bottom', y: 1.0, xanchor: 'left',
+                    x: 0, font: { size: 9 } },
+          yaxis: { range: [0, 100], gridcolor: '#f1f5f9', ticksuffix: ' %' },
+          xaxis: { dtick: 2, gridcolor: '#f8fafc' },
+        }, PLOTLY_CONFIG);
+      }
+    },
+
+    // Bar length is proportional to the value, as in the source analysis.
+    analBarPct(v) {
+      const rows = this.anal.data?.trinn ?? [];
+      const max = Math.max(...rows.map(r => r.verdi_pct ?? 0), 1);
+      return Math.max(0, (v ?? 0) / (max * 1.06) * 100);
+    },
+
+    // Group trinn rows by network level, preserving order
+    get analTrinnGrupper() {
+      const rows = this.anal.data?.trinn ?? [];
+      const out = [];
+      for (const r of rows) {
+        const last = out[out.length - 1];
+        if (last && last.nivaa === r.nivaa) last.rader.push(r);
+        else out.push({ nivaa: r.nivaa, rader: [r] });
+      }
+      return out;
+    },
+
+    // Signed value with fixed decimals, or an en dash when not applicable
+    fmtSigned(v, digits = 1, suffix = '') {
+      if (v === null || v === undefined || Number.isNaN(v)) return '–';
+      const s = v.toLocaleString('nb-NO', {
+        minimumFractionDigits: digits, maximumFractionDigits: digits,
+      });
+      return `${v > 0 ? '+' : ''}${s}${suffix}`;
+    },
+
+    renderAnalyseDonuts() {
+      const front = this.anal.data?.front;
+      if (!front) return;
+      for (const [nivaa, key] of [['D-nett', 'dnett'], ['R-nett', 'rnett']]) {
+        const el = document.getElementById(`analyse-front-${key}`);
+        if (!el) continue;
+        const rows = front[nivaa] ?? [];
+        if (!rows.length) { Plotly.purge(el); continue; }
+        Plotly.react(el, [{
+          type: 'pie',
+          hole: 0.58,
+          labels: rows.map(r => r.navn),
+          values: rows.map(r => r.andel_pct),
+          marker: {
+            colors: rows.map(r => r.farge),
+            // 2px surface gap between adjacent segments
+            line: { color: '#ffffff', width: 2 },
+          },
+          // Direct labels on every segment — required relief for the palette's
+          // CVD/contrast warnings, so identity is never colour-alone.
+          textinfo: 'percent',
+          texttemplate: '%{percent:.0%}',
+          textposition: 'outside',
+          outsidetextfont: { size: 12, color: '#475569' },
+          // Let Plotly grow the margins to fit outside labels — small slices
+          // (a few percent) would otherwise clip at this height.
+          automargin: true,
+          sort: false,
+          direction: 'clockwise',
+          hovertemplate: '%{label}<br>%{value:.1f} %<extra></extra>',
+        }], {
+          ...BASE_LAYOUT,
+          showlegend: false,
+          margin: { t: 34, b: 34, l: 34, r: 34 },
+          height: 250,
+          annotations: [{
+            text: nivaa, showarrow: false, font: { size: 15, color: '#475569' },
+            x: 0.5, y: 0.5, xref: 'paper', yref: 'paper',
+          }],
+        }, PLOTLY_CONFIG);
+      }
+    },
+
+    // ─── Flerårsark ──────────────────────────
+
+    _flerarQs() {
+      const f = this.flerar;
+      const p = new URLSearchParams();
+      if (this.selectedRun) p.set('run_name', this.selectedRun);
+      p.set('recalibrate', f.recalibrate ? 'true' : 'false');
+      p.set('bfv_rebase', f.bfvRebase);
+      p.set('aar_til', String(f.aarTil));
+      return `?${p.toString()}`;
+    },
+
+    async buildFlerarsark() {
+      const f = this.flerar;
+      f.loading = true;
+      this.globalError = '';
+      try {
+        const data = await this.api('GET', `/api/flerarsark${this._flerarQs()}`);
+        f.years       = data.years ?? [];
+        f.sheets      = data.sheets ?? {};
+        f.columns     = data.columns ?? [];
+        f.summary     = data.summary ?? [];
+        f.diagnostics = data.diagnostics ?? null;
+        f.activeYear  = f.years.length ? f.years[0] : null;
+        this.showToast(`Flerårsark bygget – ${f.years.length} år`);
+      } catch (e) {
+        this.globalError = e.message;
+      } finally {
+        f.loading = false;
+      }
+    },
+
+    get flerarRows() {
+      const f = this.flerar;
+      if (f.activeYear === null) return [];
+      return f.sheets[String(f.activeYear)] ?? [];
+    },
+
+    get flerarColumns() {
+      const f = this.flerar;
+      if (f.expanded) return f.columns;
+      const compact = ['Selskap', 'År', 'Kostnadsgrunnlag', 'K* etter kalibrering',
+                       'Inntektsramme etter kalibrering', 'AVS', 'BFV',
+                       'AKG (inkl 1 % arbeids-kapital)', 'Kraftpris kr/MWh'];
+      return f.columns.filter(c => compact.includes(c));
+    },
+
+    downloadFlerarsark() {
+      window.location.href = `/api/flerarsark/excel${this._flerarQs()}`;
     },
 
     // ─── Tab 1 ───────────────────────────────
