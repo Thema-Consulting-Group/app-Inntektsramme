@@ -7,3 +7,12 @@
 ~$*.xlsb
 rme_table.xlsx
 rme_table_forecast.xlsx
+
+# Bootstrap-estimater regnes på nytt ved hver kjøring (IRiR.R: BS.new = 1) og
+# skrives over av R-pipeline. Verdiene er stokastiske, så filen ga konflikt ved
+# hver merge. Den ligger fortsatt lokalt og gjenbrukes hvis BS.new settes til 0.
+/Data/Bootstrap/*.csv
+
+# Kildedokumenter (analyser, presentasjoner) holdes utenfor repoet — de er store
+# binærfiler som ikke kan diffes. Legg dem gjerne i mappa lokalt.
+*.pdf
