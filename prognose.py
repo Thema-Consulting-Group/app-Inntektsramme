@@ -17,6 +17,7 @@ Usage:
 import os
 import pandas as pd
 import numpy as np
+from functools import lru_cache
 
 FORECAST_YEARS = list(range(2025, 2036))  # <-- start 2025
 _BASE_YEAR = 2026  # revenue cap model output year (y.rc)
@@ -54,12 +55,27 @@ def load_forutsetninger_from_csv(path: str = _SONER_CSV) -> dict | None:
         return None
 
 
-def _read_grunnlag(path: str) -> pd.DataFrame:
-    """Read grunnlagsdata from CSV or Excel (.xlsx/.xls)."""
+@lru_cache(maxsize=8)
+def _read_grunnlag_cached(path: str, mtime: float) -> pd.DataFrame:
+    """Cached raw read.  `mtime` is part of the key so an uploaded file busts it."""
     ext = os.path.splitext(path)[1].lower()
     if ext in (".xlsx", ".xls"):
         return pd.read_excel(path).fillna(0)
     return pd.read_csv(path).fillna(0)
+
+
+def _read_grunnlag(path: str) -> pd.DataFrame:
+    """Read grunnlagsdata from CSV or Excel (.xlsx/.xls).
+
+    Cached on (path, mtime) — a batch run over all companies would otherwise
+    re-read the same file once per company.  Returns a copy so callers cannot
+    mutate the cached frame.
+    """
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = 0.0
+    return _read_grunnlag_cached(path, mtime).copy()
 
 # ---------------------------------------------------------------------------
 # Default assumptions from NVE's online tool (April 2026)
@@ -356,6 +372,12 @@ def get_task_elasticity_observations(
     return {"ld": ld_rows, "rd": rd_rows}
 
 
+@lru_cache(maxsize=4)
+def _read_investeringer_cached(csv_path: str, mtime: float) -> pd.DataFrame:
+    """Cached read of investeringer.csv, keyed on (path, mtime)."""
+    return pd.read_csv(csv_path, sep=";", dtype={"id": int})
+
+
 def load_investeringer_for_company(company_id: int, csv_path: str = _INV_CSV) -> dict:
     """Load per-company investment rates (% of BFV) from investeringer.csv.
 
@@ -370,7 +392,7 @@ def load_investeringer_for_company(company_id: int, csv_path: str = _INV_CSV) ->
     if not os.path.exists(csv_path):
         return result
     try:
-        df = pd.read_csv(csv_path, sep=";", dtype={"id": int})
+        df = _read_investeringer_cached(csv_path, os.path.getmtime(csv_path))
         company_rows = df[df["id"] == company_id]
         year_cols = [c for c in df.columns if c.isdigit()]
         for _, row in company_rows.iterrows():
@@ -438,7 +460,11 @@ class PrognoseCalculator:
         use_historical_inv: bool = True,
         edited_inv_nok: dict | None = None,
         task_elas_override: dict | None = None,
+        bfv_rebase: str = "none",
+        include_utred: bool = False,
     ):
+        self.bfv_rebase = bfv_rebase
+        self.include_utred = include_utred
         self.use_historical_inv = use_historical_inv
         self.edited_inv_nok = edited_inv_nok or {}  # {inv_sf_ld, inv_gf_ld, inv_sf_rd, inv_gf_rd} → {yr: nok}
         self._task_elas_override = task_elas_override  # applied after _init_subcomponents if provided
@@ -469,6 +495,11 @@ class PrognoseCalculator:
 
         self._init_base(base_ir, base_etl)
         self._init_subcomponents(grunnlagsdata_csv_path, base_etl)
+        self._rebase_to_ark_bfv()
+        if self.include_utred and self.rd_utred_ark:
+            # Grunnlagsdatas utredningskostnader ligger på et annet nivå enn arkets;
+            # basisåret er pinnet til arket, så vi starter framskrivingen der.
+            self.rd_utred0 = self.rd_utred_ark
         # Apply user override AFTER per-company estimation so it always wins
         if self._task_elas_override:
             if "ld" in self._task_elas_override:
@@ -525,6 +556,9 @@ class PrognoseCalculator:
         self.total_ir = v(etl, "Inntektsramme etter kalibrering")
         self.kraftpris_base = v(etl, "Kraftpris kr/MWh") or 500
         self.kundetillegg = v(etl, "Tillegg i kostnadsnorm for kundevekst")
+        # Årslønnjusterte utrednings-/koordineringskostnader (RKSU) slik de ligger
+        # i inntektsrammearket.  Brukes når include_utred er satt.
+        self.rd_utred_ark = v(etl, "Årslønn-justerte kostnader knyttet til utred.ansvar og KDS")
         self.selskap = etl.get("Selskap", "")
 
         # Base-year DEA efficiencies (constant through projection)
@@ -747,6 +781,48 @@ class PrognoseCalculator:
     # ------------------------------------------------------------------
     # Merger synergy
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # BFV rebasing
+    # ------------------------------------------------------------------
+
+    def _rebase_to_ark_bfv(self):
+        """Skaler grunnlagsdatas BFV-nivå ned til inntektsrammearkets kapitalbase.
+
+        Bokførte verdier i grunnlagsdata (``ld_bv.sf``/``ld_bv.gf``) er ikke det
+        samme som arkets avkastningsgrunnlag: samlet ligger de ~27 % over på
+        lokalt nett og ~8 % over på regionalt.  Basisåret rapporteres fra arket,
+        mens 2027+ framskrives fra grunnlagsdata-nivået — uten justering får
+        kapitalbasen derfor et sprang på ett år som ikke har noen økonomisk
+        årsak.  Vi beholder sf/gf-fordelingen og flytter bare nivået.
+
+        Modus:
+          "none" — ingen justering (uendret oppførsel, standard).
+          "bfv"  — skaler kun BFV.  Investeringene beholdes i faktiske kroner,
+                   så veksttakten på den mindre basen blir høyere.
+          "both" — skaler BFV *og* de historiske investeringssnittene med samme
+                   faktor, slik at den observerte veksttakten bevares.
+
+        Task-elastisitetene (Δoppgave per MNOK) skaleres ikke; de påvirker bare
+        oppgavevariablene i grunnlagsdata-utdata, ikke kostnadsgrunnlag eller IR.
+        """
+        if self.bfv_rebase not in ("bfv", "both"):
+            return
+
+        for lvl in ("ld", "rd"):
+            sf = getattr(self, f"{lvl}_bfv_sf0")
+            gf = getattr(self, f"{lvl}_bfv_gf0")
+            total = sf + gf
+            ark_bfv = getattr(self, f"{lvl}_bfv")
+            if total <= 0 or ark_bfv <= 0:
+                continue
+            k = ark_bfv / total
+            setattr(self, f"{lvl}_bfv_sf0", sf * k)
+            setattr(self, f"{lvl}_bfv_gf0", gf * k)
+            if self.bfv_rebase == "both":
+                for part in ("sf", "gf"):
+                    attr = f"avg_inv_{part}_{lvl}"
+                    setattr(self, attr, getattr(self, attr) * k)
 
     def _synergy_factor(self, year: int) -> float:
         """Return the fraction of synergy_frac to apply in this year.
@@ -983,7 +1059,12 @@ class PrognoseCalculator:
             rd_nettap_t = self.rd_nettap * kp_ratio
 
             ld_kg_t = ld_dv_t + ld_avs_t + ld_nettap_t + ld_kile + ld_akg_t * nve_rente
-            rd_kg_t = rd_dv_t + rd_avs_t + rd_nettap_t + rd_kile + rd_akg_t * nve_rente
+            # Arket har utrednings-/koordineringskostnader (RKSU) i RD-kostnads-
+            # grunnlaget (se CostCalculator.rd_kostnadsgrunnlag).  Prognosens egen
+            # formel utelot dem, slik at grunnlaget falt ut av basisåret og videre.
+            rd_utred_t = rd_utred * (1 - syn) if self.include_utred else 0.0
+            rd_kg_t = (rd_dv_t + rd_utred_t + rd_avs_t + rd_nettap_t + rd_kile
+                       + rd_akg_t * nve_rente)
             total_kg_t = ld_kg_t + rd_kg_t
 
             k_ld_t = self.eff_ld * ld_kg_t

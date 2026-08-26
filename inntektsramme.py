@@ -315,6 +315,8 @@ class DEANorm:
     kostnadsgrunn : cost basis Series (same index as ids)
     rab17b        : RAB incl 17b Series (same index as ids)
     overrides     : {id: value} manual efficiency overrides (None → NaN)
+    eff_extra     : {id: value} extra/replacement efficiencies that do NOT affect
+                    tillegg-pool membership (used by the merger analysis)
     """
 
     def __init__(
@@ -325,11 +327,18 @@ class DEANorm:
         kostnadsgrunn: pd.Series,
         rab17b: pd.Series,
         overrides: dict,
+        eff_extra: dict | None = None,
     ):
         # Build efficiency mapping: bootstrap results + overrides
         # None override → 1.0 ("evalueres ikke" = 100% efficient, full cost as norm)
         eff_map = results_df.set_index("id")[eff_col].to_dict()
         eff_map.update({k: (v if v is not None else 1.0) for k, v in overrides.items()})
+        if eff_extra:
+            # Efficiencies for units that are not in the DEA results file, or whose
+            # score has been recomputed (e.g. a merged entity, or incumbents after
+            # a frontier shift).  Unlike `overrides` this does NOT change who is in
+            # the tillegg pool — it only supplies the score.
+            eff_map.update(eff_extra)
         self.efficiency = ids.map(eff_map)
 
         self.kostnadsgrunn = kostnadsgrunn
