@@ -37,6 +37,34 @@ Appen er delt i tre steg – naviger med knappene øverst.
 Klikk **Kjør RME Modell** for å kjøre modellen. Resultater lagres automatisk i `Results/`.
 Når kjøringen er ferdig kan du laste ned tabellen som CSV eller Excel.
 
+#### Inndata for neste kjøring
+Panelet **Inndata for neste kjøring** viser de tre Excel-filene modellen leser:
+`irBase` (hoveddatasettet), `Kraftpris` og `Selskaps-ID`. Hver rad har tre knapper:
+
+| Knapp | Gjør |
+|---|---|
+| **✎** | Åpner filen i appen, der du kan endre tall, legge til eller slette rader, og lagre. |
+| **⬇** | Laster ned filen slik den er nå – standardfilen om ingen overstyring ligger inne, ellers din egen. |
+| Klikk på raden | Laster opp en fil som erstatter standarden (kan også dras inn). |
+
+Lasting ned og opp er samme fil: du trenger ikke vite hvordan den ser ut på forhånd,
+last den ned, rediger i Excel og legg den tilbake i samme rad. En opplastet eller
+lagret fil skrives som `*_override.xlsx` i `Data/BaseData/` og leses av
+`R-script/0_1_Config_Assumptions_Data.R` foran standardfilen. **✕** fjerner
+overstyringen og setter standardfilen tilbake i bruk.
+
+Lagring skriver bare filen – klikk **Start** etterpå for å kjøre modellen med de nye
+verdiene.
+
+To ting er verdt å merke seg:
+
+* **irBase kan ikke redigeres i appen** (440 rader × 64 kolonner). Den åpner med en
+  forklaring og en nedlastingsknapp i stedet; grensen for redigering er 500 rader ×
+  12 kolonner.
+* **Å slette rader er ikke ufarlig.** Filene koples på selskapstabellen med en
+  venstre-join på `orgn`, så et selskap som ikke står i filen får ingen verdi i
+  kjøringen. Editoren varsler om antall rader går ned.
+
 #### Fusjonere selskaper før kjøring
 Panelet **Fusjoner selskaper** slår sammen selskaper i grunnlagsdata før modellen
 kjører. Velg overtakende selskap, kryss av dem som skal fusjoneres inn, og klikk

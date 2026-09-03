@@ -168,6 +168,16 @@
                   </div>
 
                   <span x-show="f.uploading" class="w-3.5 h-3.5 border-2 border-slate-200 border-t-[#507864] rounded-full animate-spin shrink-0"></span>
+                  <!-- prevent.stop like the ✕ below: the row is a <label> that
+                       opens the file picker on any unhandled click. -->
+                  <button x-show="!f.uploading"
+                          @click.prevent.stop="openInputEditor(f.key)"
+                          class="text-slate-300 hover:text-brand-600 shrink-0 transition-colors text-xs leading-none"
+                          title="Rediger verdiene i appen">✎</button>
+                  <button x-show="!f.uploading"
+                          @click.prevent.stop="downloadInputFile(f.key)"
+                          class="text-slate-300 hover:text-brand-600 shrink-0 transition-colors text-xs leading-none"
+                          title="Last ned filen slik den er nå (rediger i Excel og last opp igjen)">⬇</button>
                   <button x-show="f.override && !f.uploading"
                           @click.prevent.stop="clearInputFile(f.key)"
                           class="text-slate-300 hover:text-red-500 shrink-0 transition-colors text-sm leading-none" title="Fjern overstyring">✕</button>
@@ -1862,6 +1872,117 @@
       </div>
 
     </main>
+  </div>
+
+  <!-- ══════════ Input-file editor ══════════
+       Edits the small lookup workbooks in place (kraftpris, Selskaps-ID) and
+       saves them as that file's override, so "what does this file even look
+       like?" no longer requires downloading it first. -->
+  <div x-show="inputEdit.open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6"
+       @click.self="closeInputEditor()">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+
+      <!-- Header -->
+      <div class="flex items-start gap-3 px-5 py-4 border-b border-slate-100">
+        <div class="flex-1 min-w-0">
+          <h3 class="text-sm font-semibold text-slate-800">
+            <span x-text="inputEdit.label"></span>
+            <span x-show="inputEdit.dirty" class="text-[10px] font-semibold text-amber-600 ml-1">· ulagrede endringer</span>
+          </h3>
+          <p class="text-[11px] text-slate-400 truncate mt-0.5">
+            <span x-text="inputEdit.filename"></span>
+            <span x-show="inputEdit.sheet" x-text="' · ark ' + inputEdit.sheet"></span>
+            <span x-show="inputEdit.nRows" x-text="' · ' + inputEdit.rows.length + ' rader × ' + inputEdit.nCols + ' kolonner'"></span>
+            <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-tight ml-1"
+                  :class="inputEdit.source === 'override' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'"
+                  x-text="inputEdit.source === 'override' ? 'endret' : 'standard'"></span>
+          </p>
+        </div>
+        <input x-show="!inputEdit.tooLarge && inputEdit.rows.length" x-model="inputEdit.filter"
+               placeholder="Filtrer …" class="input w-32 text-xs py-1">
+        <button @click="closeInputEditor()" class="text-slate-300 hover:text-slate-600 text-lg leading-none shrink-0">✕</button>
+      </div>
+
+      <!-- Body -->
+      <div class="flex-1 overflow-auto px-5 py-4">
+        <p x-show="inputEdit.loading" class="text-xs text-slate-400">Laster …</p>
+
+        <p x-show="inputEdit.error" class="text-xs text-red-600 mb-3" x-text="inputEdit.error"></p>
+
+        <!-- Too big to edit here: say so, and offer the route that works -->
+        <div x-show="inputEdit.tooLarge && !inputEdit.loading" class="text-xs text-slate-500 space-y-3">
+          <p>
+            Denne filen er for stor å redigere i appen
+            (<span x-text="inputEdit.nRows"></span> rader ×
+            <span x-text="inputEdit.nCols"></span> kolonner — grensen er
+            <span x-text="inputEdit.maxRows"></span> × <span x-text="inputEdit.maxCols"></span>).
+          </p>
+          <p>Last den ned, rediger i Excel og last den opp igjen i samme rad.</p>
+          <button @click="downloadInputFile(inputEdit.key)" class="btn-secondary text-xs">
+            ⬇ Last ned <span x-text="inputEdit.filename"></span>
+          </button>
+        </div>
+
+        <!-- Dropping rows is not harmless: R left-joins these files onto the
+             company table by orgn, so a company that falls out simply gets no
+             value for the run. -->
+        <p x-show="!inputEdit.tooLarge && inputEdit.rows.length < inputEdit.nRows"
+           class="text-[11px] text-amber-600 mb-2">
+          Du har fjernet <span x-text="inputEdit.nRows - inputEdit.rows.length"></span>
+          rader. Selskaper som ikke står i filen får ingen verdi i kjøringen.
+        </p>
+
+        <!-- Editable grid -->
+        <div x-show="!inputEdit.tooLarge && !inputEdit.loading && inputEdit.columns.length" class="overflow-x-auto">
+          <table class="data-table w-full">
+            <thead>
+              <tr>
+                <th class="text-[10px] text-slate-400 font-semibold w-8">#</th>
+                <template x-for="c in inputEdit.columns" :key="c">
+                  <th class="text-[11px]" x-text="c"></th>
+                </template>
+                <th class="w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(row, i) in inputEdit.rows" :key="i">
+                <tr x-show="inputRowMatches(row)">
+                  <td class="text-[10px] text-slate-300 tabular-nums" x-text="i + 1"></td>
+                  <template x-for="c in inputEdit.columns" :key="c">
+                    <td class="p-0.5">
+                      <input x-model="row[c]" @input="inputEdit.dirty = true"
+                             class="w-full text-xs px-1.5 py-1 border border-transparent hover:border-slate-200 focus:border-brand-600 focus:outline-none rounded tabular-nums bg-transparent">
+                    </td>
+                  </template>
+                  <td class="p-0.5">
+                    <button @click="removeInputRow(i)" title="Slett raden"
+                            class="text-slate-300 hover:text-red-500 text-xs leading-none px-1">✕</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <button @click="addInputRow()" class="text-[11px] text-brand-600 hover:underline mt-2">+ Ny rad</button>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div x-show="!inputEdit.tooLarge && !inputEdit.loading"
+           class="flex items-center gap-2 px-5 py-3 border-t border-slate-100">
+        <p class="text-[11px] text-slate-400 flex-1">
+          Lagring skriver overstyringsfilen — klikk Start etterpå for å kjøre modellen med de nye verdiene.
+        </p>
+        <p x-show="inputEdit.confirmClose" class="text-[11px] text-amber-600">Forkast endringene?</p>
+        <button @click="closeInputEditor()" class="btn-secondary text-xs"
+                x-text="inputEdit.confirmClose ? 'Ja, lukk' : 'Avbryt'"></button>
+        <button @click="saveInputEditor()" :disabled="inputEdit.saving || !inputEdit.rows.length"
+                class="btn-primary text-xs">
+          <span x-show="!inputEdit.saving">Lagre og lukk</span>
+          <span x-show="inputEdit.saving">Lagrer …</span>
+        </button>
+      </div>
+    </div>
   </div>
 </div>
 

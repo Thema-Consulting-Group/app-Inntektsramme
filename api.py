@@ -207,21 +207,60 @@ class PrognoseRequest(BaseModel):
 # /api/input-files  — BaseData override files (irbase / kraftpris / id)
 # ---------------------------------------------------------------------------
 
-_INPUT_FILE_DEFS: dict[str, tuple[str, str]] = {
-    "irbase":    ("irBase_override.xlsx",    "Data/BaseData"),
-    "kraftpris": ("kraftpris_override.xlsx", "Data/BaseData"),
-    "id":        ("id_override.xlsx",        "Data/BaseData"),
+# The default filenames must stay in sync with R-script/0_1_Config_Assumptions_Data.R,
+# which resolves the same override-then-default pair for each input file.
+_INPUT_FILE_DEFS: dict[str, dict[str, str]] = {
+    "irbase":    {"override": "irBase_override.xlsx",
+                  "default":  "irBase - Stata - 12.11.2025 09_56_56.xlsx",
+                  "folder":   "Data/BaseData"},
+    "kraftpris": {"override": "kraftpris_override.xlsx",
+                  "default":  "kraftpris2026.xlsx",
+                  "folder":   "Data/BaseData"},
+    "id":        {"override": "id_override.xlsx",
+                  "default":  "id_ir_26.xlsx",
+                  "folder":   "Data/BaseData"},
 }
+
+# In-app editing targets the small lookup files (kraftpris is 82x2, id 97x3).
+# irBase is 440x64 - 28k cells is more than the browser table handles well and
+# more than anyone edits by hand, so that one stays download / edit / upload.
+_SHEET_EDIT_MAX_ROWS = 500
+_SHEET_EDIT_MAX_COLS = 12
+
+
+def _resolve_input_file(key: str) -> tuple[Path, str, bool]:
+    """Return (path, filename, is_override) for the file the model would read.
+
+    Same precedence as the R side: the override if one has been uploaded,
+    otherwise the shipped default - so a download hands back exactly what the
+    next run would use.
+    """
+    if key not in _INPUT_FILE_DEFS:
+        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
+    d = _INPUT_FILE_DEFS[key]
+    folder = ROOT / d["folder"]
+    override = folder / d["override"]
+    if override.exists():
+        return override, d["override"], True
+    default = folder / d["default"]
+    if not default.exists():
+        raise HTTPException(404, f"Finner ikke standardfilen «{d['default']}» i {d['folder']}.")
+    return default, d["default"], False
+
 
 @app.get("/api/input-files")
 def get_input_files():
     result: dict = {}
-    for key, (fname, folder) in _INPUT_FILE_DEFS.items():
-        p = ROOT / folder / fname
+    for key, d in _INPUT_FILE_DEFS.items():
+        p = ROOT / d["folder"] / d["override"]
+        base = ROOT / d["folder"] / d["default"]
         result[key] = {
             "active": p.exists(),
-            "filename": fname if p.exists() else None,
+            "filename": d["override"] if p.exists() else None,
             "size": p.stat().st_size if p.exists() else None,
+            # What a download would hand back when no override is uploaded.
+            "default_filename": d["default"],
+            "default_exists": base.exists(),
         }
     return result
 
@@ -232,8 +271,8 @@ async def upload_input_file(key: str, file: UploadFile = File(...)):
         raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Kun Excel-filer (.xlsx/.xls) støttes.")
-    fname, folder = _INPUT_FILE_DEFS[key]
-    dest = ROOT / folder / fname
+    d = _INPUT_FILE_DEFS[key]
+    dest = ROOT / d["folder"] / d["override"]
     content = await file.read()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(content)
@@ -244,11 +283,121 @@ async def upload_input_file(key: str, file: UploadFile = File(...)):
 def delete_input_file(key: str):
     if key not in _INPUT_FILE_DEFS:
         raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
-    fname, folder = _INPUT_FILE_DEFS[key]
-    p = ROOT / folder / fname
+    d = _INPUT_FILE_DEFS[key]
+    p = ROOT / d["folder"] / d["override"]
     if p.exists():
         p.unlink()
     return {"ok": True}
+
+
+@app.get("/api/input-files/{key}/download")
+def download_input_file(key: str):
+    """Hand back the input file as-is, so it can be edited and re-uploaded.
+
+    Without this the upload slot was write-only: you had to already own a
+    correctly shaped workbook to use it, which is no help when the question is
+    "what does the kraftpris file even look like?".
+    """
+    path, filename, _ = _resolve_input_file(key)
+    return FileResponse(
+        path,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/api/input-files/{key}/sheet")
+def get_input_file_sheet(key: str):
+    """The first sheet of an input file as rows, for editing in the browser.
+
+    too_large is a normal 200, not an error: the caller then points at the
+    download route instead of showing a failure.
+    """
+    path, filename, is_override = _resolve_input_file(key)
+    try:
+        with pd.ExcelFile(path) as xl:
+            sheet = xl.sheet_names[0]
+            df = xl.parse(sheet)
+    except Exception as e:
+        raise HTTPException(500, f"Kunne ikke lese «{filename}»: {e}")
+
+    n_rows, n_cols = int(df.shape[0]), int(df.shape[1])
+    too_large = n_rows > _SHEET_EDIT_MAX_ROWS or n_cols > _SHEET_EDIT_MAX_COLS
+    return {
+        "filename":  filename,
+        "sheet":     sheet,
+        "source":    "override" if is_override else "standard",
+        "n_rows":    n_rows,
+        "n_cols":    n_cols,
+        "too_large": too_large,
+        "max_rows":  _SHEET_EDIT_MAX_ROWS,
+        "max_cols":  _SHEET_EDIT_MAX_COLS,
+        "columns":   [] if too_large else [str(c) for c in df.columns],
+        "rows":      [] if too_large else _df_to_records(df),
+    }
+
+
+class SheetSaveRequest(BaseModel):
+    columns: list[str]
+    rows: list[dict]
+    sheet: str | None = None
+
+
+def _coerce_sheet_types(df: pd.DataFrame) -> pd.DataFrame:
+    """Restore numeric dtypes lost on the round-trip through JSON text inputs.
+
+    This matters because R joins on orgn: written as text - or as 824368082.0 -
+    the join matches nothing and the run silently keeps the old prices. A column
+    is converted only when *every* non-blank cell parses as a number, so real
+    text columns (selskapsnavn) stay text. Norwegian decimal commas are
+    accepted, since that is what Excel and the keyboard produce here.
+    """
+    for col in df.columns:
+        raw   = df[col]
+        text  = raw.astype(str).str.strip()
+        blank = raw.isna() | text.eq("") | text.eq("None") | text.eq("nan")
+        text  = text.str.replace(r"^(-?\d+),(\d+)$", r"\1.\2", regex=True)
+        num   = pd.to_numeric(text.where(~blank), errors="coerce")
+        if (num.isna() & ~blank).any():
+            continue  # a real value that is not a number -> leave the column as text
+        present = num.dropna()
+        if not present.empty and (present % 1 == 0).all():
+            df[col] = num.astype("Int64")   # ids and orgn stay integers
+        else:
+            df[col] = num
+    return df
+
+
+@app.post("/api/input-files/{key}/sheet")
+def save_input_file_sheet(key: str, body: SheetSaveRequest):
+    """Write edited rows back as the override workbook for this input file."""
+    if key not in _INPUT_FILE_DEFS:
+        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
+    if not body.columns:
+        raise HTTPException(400, "Ingen kolonner å lagre.")
+    if not body.rows:
+        # An empty override is worse than no override: the run would read zero
+        # rows and quietly drop every company instead of failing.
+        raise HTTPException(400, "Kan ikke lagre en tom fil - slett overstyringen i stedet.")
+
+    df = pd.DataFrame(body.rows).reindex(columns=body.columns)
+    df = _coerce_sheet_types(df)
+
+    d = _INPUT_FILE_DEFS[key]
+    dest = ROOT / d["folder"] / d["override"]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # Write beside the target and move into place: a crash mid-write would
+    # otherwise leave a truncated override that the next run reads as gospel.
+    tmp = dest.with_name(dest.stem + ".tmp.xlsx")
+    try:
+        with pd.ExcelWriter(tmp, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name=(body.sheet or "Ark1")[:31])
+        tmp.replace(dest)
+    except Exception as e:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(500, f"Kunne ikke skrive «{d['override']}»: {e}")
+
+    return {"ok": True, "filename": d["override"], "rows": len(df), "cols": len(df.columns)}
 
 
 # ---------------------------------------------------------------------------

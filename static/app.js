@@ -219,6 +219,16 @@ function dashboard() {
     },
 
     /* ── BaseData input-file overrides ─────── */
+    // The workbook open in the edit modal. Small lookup files (kraftpris, id)
+    // are edited here; irBase comes back tooLarge and gets the download route.
+    inputEdit: {
+      open: false, key: '', label: '',
+      loading: false, saving: false, error: '', confirmClose: false,
+      filename: '', sheet: '', source: '',
+      columns: [], rows: [], filter: '',
+      nRows: 0, nCols: 0, tooLarge: false, maxRows: 0, maxCols: 0,
+      dirty: false,
+    },
     inputFiles: [
       { key: 'irbase',    label: 'irBase (hoveddatasett)',  accept: '.xlsx,.xls', defaultName: 'irBase - Stata - 12.11.2025 09_56_56.xlsx', override: null, uploading: false, dragOver: false },
       { key: 'kraftpris', label: 'Kraftpris',                accept: '.xlsx,.xls', defaultName: 'kraftpris2026.xlsx',                         override: null, uploading: false, dragOver: false },
@@ -451,6 +461,9 @@ function dashboard() {
         for (const f of this.inputFiles) {
           const info = d[f.key];
           f.override = info?.active ? info.filename : null;
+          // Take the default name from the server so the label cannot drift
+          // from the file R actually falls back to.
+          if (info?.default_filename) f.defaultName = info.default_filename;
         }
       } catch (_) {}
     },
@@ -484,6 +497,97 @@ function dashboard() {
       const f = this.inputFiles.find(x => x.key === key);
       await fetch(`/api/input-files/${key}`, { method: 'DELETE' });
       if (f) { f.override = null; this.showToast(`${f.label}: tilbake til standard`); }
+    },
+
+    // The upload slot used to be write-only: you had to already own a
+    // correctly shaped workbook to use it. This hands back the exact file the
+    // next run would read — override if one is uploaded, otherwise the
+    // default — so it can be edited in Excel and dropped back in.
+    // Plain navigation, like downloadRun: keeps the browser's basic-auth
+    // session and lets Content-Disposition name the file.
+    downloadInputFile(key) {
+      window.location.href = `/api/input-files/${key}/download`;
+    },
+
+    async openInputEditor(key) {
+      const f = this.inputFiles.find(x => x.key === key);
+      const e = this.inputEdit;
+      Object.assign(e, {
+        open: true, key, label: f?.label ?? key,
+        loading: true, saving: false, error: '', confirmClose: false,
+        columns: [], rows: [], filter: '', dirty: false,
+        tooLarge: false, nRows: 0, nCols: 0,
+      });
+      try {
+        const d = await this.api('GET', `/api/input-files/${key}/sheet`);
+        Object.assign(e, {
+          filename: d.filename, sheet: d.sheet, source: d.source,
+          nRows: d.n_rows, nCols: d.n_cols,
+          tooLarge: d.too_large, maxRows: d.max_rows, maxCols: d.max_cols,
+          columns: d.columns ?? [],
+          // Copy the rows: editing must not mutate what the response held.
+          rows: (d.rows ?? []).map(r => ({ ...r })),
+        });
+      } catch (err) {
+        e.error = err.message;
+      } finally {
+        e.loading = false;
+      }
+    },
+
+    // Unsaved edits are only discarded on a second click — no blocking
+    // confirm() dialog, just a visible "sure?" in the footer.
+    closeInputEditor() {
+      const e = this.inputEdit;
+      if (e.dirty && !e.confirmClose) { e.confirmClose = true; return; }
+      e.open = false; e.confirmClose = false; e.dirty = false;
+    },
+
+    inputRowMatches(row) {
+      const q = this.inputEdit.filter.trim().toLowerCase();
+      if (!q) return true;
+      return Object.values(row).some(v => String(v ?? '').toLowerCase().includes(q));
+    },
+
+    addInputRow() {
+      const e = this.inputEdit;
+      e.rows.push(Object.fromEntries(e.columns.map(c => [c, ''])));
+      e.dirty = true;
+      e.filter = '';   // a new empty row would be hidden by an active filter
+    },
+
+    removeInputRow(i) {
+      this.inputEdit.rows.splice(i, 1);
+      this.inputEdit.dirty = true;
+    },
+
+    async saveInputEditor() {
+      const e = this.inputEdit;
+      if (!e.rows.length) {
+        // The server refuses this too — an empty override would make the run
+        // read zero rows instead of failing.
+        e.error = 'Kan ikke lagre en tom fil. Lukk uten å lagre, eller legg til en rad.';
+        return;
+      }
+      e.saving = true;
+      e.error  = '';
+      try {
+        const d = await this.api('POST', `/api/input-files/${e.key}/sheet`, {
+          columns: e.columns,
+          rows:    e.rows,
+          sheet:   e.sheet,
+        });
+        const f = this.inputFiles.find(x => x.key === e.key);
+        if (f) f.override = d.filename;
+        e.dirty = false;
+        e.open  = false;
+        // Saving writes the override file; it does not re-run the model.
+        this.showToast(`${e.label} lagret (${d.rows} rader) — klikk Start for å kjøre med de nye verdiene`);
+      } catch (err) {
+        e.error = err.message;
+      } finally {
+        e.saving = false;
+      }
     },
     async initGrunnlagsStatus() {
       try {
