@@ -22,3 +22,8 @@ rme_table_forecast.xlsx
 # Kildedokumenter (analyser, presentasjoner) holdes utenfor repoet — de er store
 # binærfiler som ikke kan diffes. Legg dem gjerne i mappa lokalt.
 *.pdf
+
+
+
+ir_tabell (26).csv
+Fusjonscase_TS+Tn+Elvia.xlsx
