@@ -944,9 +944,15 @@
                     :disabled="!anal.orgn || anal.loading"
                     class="btn-secondary" x-text="anal.loading ? 'Laster…' : '⟳ Oppdater'"></button>
           </div>
-          <p x-show="!progCompanies.length" class="text-[11px] text-slate-400 mt-2">
-            Ingen selskaper lastet — gå til Steg 1 og velg en kjøring først.
-          </p>
+          <!-- The buttons above are gated on progCompanies, so an empty list has
+               to explain itself — otherwise it just looks like a broken button. -->
+          <div x-show="!progCompanies.length" class="mt-2 flex items-start gap-2">
+            <p class="text-[11px]"
+               :class="progCompaniesError ? 'text-red-600' : 'text-slate-400'"
+               x-text="progCompaniesError || 'Ingen selskaper lastet — gå til Steg 1 og velg en kjøring først.'"></p>
+            <button @click="loadProgCompanies()"
+                    class="text-[11px] text-brand-600 hover:underline shrink-0">Prøv igjen</button>
+          </div>
         </div>
 
         <!-- ── Ettårsvisning ── -->

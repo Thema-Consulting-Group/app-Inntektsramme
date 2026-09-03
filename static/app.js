@@ -222,6 +222,10 @@ function dashboard() {
 
     /* ── Tab 2: Prognose ─────────────────── */
     progCompanies: [],
+    // Why the company list is empty. Without this an /api/ir-table failure left
+    // every Selskap-dropdown blank and the buttons gated on it permanently
+    // greyed, with nothing on screen to explain it.
+    progCompaniesError: '',
     prog: {
       orgn: '', result: null, summary: [], years: [], allYears: [], compName: '',
       rho: 0.7, avs: 4.0,
@@ -1062,29 +1066,47 @@ function dashboard() {
 
     // ─── Tab 2 ───────────────────────────────
 
+    // Companies for every Selskap dropdown. Several buttons are gated on this
+    // list (⟳ Beregn fusjon, ⟳ Oppdater, Kjør prognose), so a silent failure
+    // here shows up as a permanently greyed button — always leave a reason in
+    // progCompaniesError instead of swallowing the error.
     async loadProgCompanies() {
-      try {
-        // Reuse from ir-table if available, otherwise parse from DEA companies
-        if (this.irTable.length) {
-          const seen = new Set();
-          this.progCompanies = this.irTable
-            .filter(r => r['Org.nr'] && r['Selskap'])
-            .map(r => ({ orgn: r['Org.nr'], name: r['Selskap'] }))
-            .filter(r => { if (seen.has(r.orgn)) return false; seen.add(r.orgn); return true; })
-            .sort((a, b) => a.name.localeCompare(b.name));
-        } else {
-          // Try loading ir table silently
-          const data = await this.api('GET', `/api/ir-table${this._runQs()}`).catch(() => null);
-          if (data?.table) {
-            const seen = new Set();
-            this.progCompanies = data.table
-              .filter(r => r['Org.nr'] && r['Selskap'])
-              .map(r => ({ orgn: r['Org.nr'], name: r['Selskap'] }))
-              .filter(r => { if (seen.has(r.orgn)) return false; seen.add(r.orgn); return true; })
-              .sort((a, b) => a.name.localeCompare(b.name));
+      const rows = (table) => {
+        const seen = new Set();
+        return table
+          .filter(r => r['Org.nr'] && r['Selskap'])
+          .map(r => ({ orgn: r['Org.nr'], name: r['Selskap'] }))
+          .filter(r => { if (seen.has(r.orgn)) return false; seen.add(r.orgn); return true; })
+          .sort((a, b) => a.name.localeCompare(b.name));
+      };
+
+      this.progCompaniesError = '';
+
+      // Reuse from ir-table if already loaded, otherwise fetch it
+      if (this.irTable.length) {
+        this.progCompanies = rows(this.irTable);
+      } else {
+        try {
+          const data = await this.api('GET', `/api/ir-table${this._runQs()}`);
+          this.progCompanies = rows(data?.table ?? []);
+        } catch (e) {
+          this.progCompanies = [];
+          // No run yet is the normal cold-start state, not a fault — say so
+          // plainly rather than dressing it up as an error.
+          if (!this.selectedRun && !this.latestRun) {
+            this.progCompaniesError = 'Ingen kjøring funnet ennå. Klikk Start i Steg 1 for å kjøre modellen.';
+          } else {
+            this.progCompaniesError = `Kunne ikke laste selskapslisten: ${e.message}`;
+            this.globalError = this.progCompaniesError;
           }
+          return;
         }
-      } catch (_) {}
+      }
+
+      if (!this.progCompanies.length) {
+        this.progCompaniesError =
+          'Kjøringen inneholder ingen selskaper (ir-tabellen mangler «Org.nr»/«Selskap»). Prøv en annen kjøring.';
+      }
     },
 
     async runPrognose() {
