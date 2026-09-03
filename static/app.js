@@ -176,6 +176,10 @@ function dashboard() {
         synergi_paa_utredning: false,
         ny_enhet_i_front: true,
         data: null,
+        // Year the key-figures table shows. null = the merger year, which is
+        // what the backend falls back to. Switching it costs nothing: the
+        // whole per-year series comes down with the response.
+        noekkeltall_aar: null,
       },
     },
 
@@ -606,13 +610,47 @@ function dashboard() {
         });
         if (this.selectedRun) p.set('run_name', this.selectedRun);
         f.data = await this.api('GET', `/api/analyse/fusjon?${p.toString()}`);
+        f.noekkeltall_aar = f.data?.noekkeltall?.aar ?? null;
         this.$nextTick(() => this.renderFusjon());
       } catch (e) {
         f.data = null;
+        f.noekkeltall_aar = null;
         this.globalError = e.message;
       } finally {
         a.loading = false;
       }
+    },
+
+    // Years the key-figures table can show. The merged unit only exists from
+    // the merger year on — earlier years hold nulls — so the picker starts there.
+    fusNoekkeltallAar() {
+      const d = this.anal.fus.data;
+      if (!d) return [];
+      return (d.aar || []).filter(y => y >= d.fusjonsaar);
+    },
+
+    // Key figures for the selected year, sliced out of the series already in
+    // the response. Falls back to the server-rendered year if the series is
+    // missing (older cached response) or the year isn't in it.
+    fusNoekkeltall() {
+      const d = this.anal.fus.data;
+      if (!d) return null;
+      const s = d.noekkeltall_serier;
+      const want = this.anal.fus.noekkeltall_aar ?? d.noekkeltall?.aar;
+      if (!s || !s.aar) return d.noekkeltall;
+      const i = s.aar.indexOf(Number(want));
+      if (i === -1) return d.noekkeltall;
+      return {
+        aar: s.aar[i],
+        a: { navn: s.a.navn, ir_mnok: s.a.ir_mnok[i], avk_pct: s.a.avk_pct[i] },
+        b: { navn: s.b.navn, ir_mnok: s.b.ir_mnok[i], avk_pct: s.b.avk_pct[i] },
+        fusjonert: s.fusjonert.map(f => ({
+          synergi_pct: f.synergi_pct,
+          ir_mnok: f.ir_mnok[i],
+          avk_pct: f.avk_pct[i],
+        })),
+        tint: d.noekkeltall?.tint ?? { ir: '#eef5fd', avkastning: '#eef6f1' },
+      };
     },
 
     renderFusjon() {

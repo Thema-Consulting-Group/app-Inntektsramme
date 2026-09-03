@@ -494,6 +494,20 @@ def build_fusjon(orgn_a: int, orgn_b: int, fusjonsaar: int,
                   "verdier": s["vektet"]} for s in scenarier],
         },
         "noekkeltall": noekkeltall,
+        # Samme tall som ``noekkeltall``, men for hvert år i perioden.  Alt er
+        # allerede beregnet per år over, så å sende hele serien lar klienten
+        # bytte år uten å kjøre DEA på nytt — ett årsbytte ville ellers kostet
+        # en full ny kjøring per synerginivå.
+        "noekkeltall_serier": {
+            "aar": aar_alle,
+            "a": {"navn": navn_a, "ir_mnok": base_a["ir_mnok"],
+                  "avk_pct": base_a["avk_pct"]},
+            "b": {"navn": navn_b, "ir_mnok": base_b["ir_mnok"],
+                  "avk_pct": base_b["avk_pct"]},
+            "fusjonert": [{"synergi_pct": s["synergi_pct"],
+                           "ir_mnok": s["ir_mnok"], "avk_pct": s["avk_pct"]}
+                          for s in scenarier],
+        },
         "front": front_per_scenario,
         "merknader": merknader,
     }
