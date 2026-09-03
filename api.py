@@ -17,6 +17,7 @@ if sys.platform == "win32":
 import glob
 import io
 import json
+import logging
 import math
 import os
 import re
@@ -40,6 +41,10 @@ from pydantic import BaseModel
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
+
+import fusjon_grunnlagsdata  # noqa: E402  (needs ROOT on sys.path)
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Optional HTTP Basic Auth  (set APP_USER + APP_PASS env vars to enable)
@@ -77,6 +82,11 @@ app = FastAPI(
 
 # Path where the user can drop a grunnlagsdata CSV to override auto-detection
 _UPLOADED_GRUNN = ROOT / "Data" / "grunnlagsdata_uploaded.csv"
+
+# Pristine copy of the last generated grunnlagsdata. The upload slot above is
+# consumed by a run; this one is not, so it stays available as the clean
+# baseline for validating hand edits and as the starting point for a merge.
+_GENERATED_GRUNN = ROOT / "Data" / "grunnlagsdata_generert.csv"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -166,6 +176,15 @@ class ScenarioRequest(BaseModel):
     exclude_ids: list[int] = []
     focus_id: int
     run_name: str | None = None
+
+
+class FusjonGruppeRequest(BaseModel):
+    mottaker: int              # orgn of the company that absorbs the others
+    maal: list[int] = []       # orgn of the companies being absorbed
+
+
+class FusjonGrunnlagsdataRequest(BaseModel):
+    grupper: list[FusjonGruppeRequest] = []
 
 
 class PrognoseRequest(BaseModel):
@@ -276,7 +295,24 @@ async def upload_grunnlagsdata(file: UploadFile = File(...)):
 
     _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(_UPLOADED_GRUNN, index=False, encoding="utf-8")
-    return {"ok": True, "filename": file.filename, "rows": len(df)}
+
+    # Sanity-check the file rather than letting an impossible value run
+    # silently. A hand-merged file typically carries summed områdepriser or
+    # summed rammevilkårsvariabler, neither of which the model can detect on
+    # its own — nettapskostnaden just comes out billions too high.
+    ref = _reference_grunnlagsdata()
+    funn = fusjon_grunnlagsdata.validate_grunnlagsdata(
+        df, ref=ref, config_path=str(ROOT / "config.yaml")
+    )
+    delvis = [d for d in fusjon_grunnlagsdata.diff_summary(ref, df) if d["delvis"]] if ref is not None else []
+
+    return _clean({
+        "ok": True,
+        "filename": file.filename,
+        "rows": len(df),
+        "validering": funn,
+        "delvis_endret": delvis,
+    })
 
 
 @app.delete("/api/upload-grunnlagsdata")
@@ -291,6 +327,130 @@ def grunnlagsdata_status():
     if _UPLOADED_GRUNN.exists():
         return {"active": True, "filename": _UPLOADED_GRUNN.name, "size": _UPLOADED_GRUNN.stat().st_size}
     return {"active": False}
+
+
+# ---------------------------------------------------------------------------
+# /api/fusjon-grunnlagsdata  — merge companies before the model runs
+# ---------------------------------------------------------------------------
+
+def _read_grunn_csv(path: Path | str) -> pd.DataFrame:
+    """Read a grunnlagsdata CSV, sniffing the delimiter as the upload path does."""
+    text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
+    first = text.split("\n", 1)[0]
+    sep = ";" if first.count(";") > first.count(",") else ","
+    return pd.read_csv(io.StringIO(text), sep=sep)
+
+
+def _reference_grunnlagsdata() -> pd.DataFrame | None:
+    """A grunnlagsdata frame known to come straight from R, for validation.
+
+    The pristine copy written by /api/generate-grunnlagsdata is preferred. A
+    run's own grunnlagsdata.csv is the fallback, but it is written *after* the
+    override step, so if that run merged companies it is no longer a clean
+    baseline — good enough for a range check, not authoritative.
+    """
+    if _GENERATED_GRUNN.exists():
+        try:
+            return _read_grunn_csv(_GENERATED_GRUNN)
+        except Exception as exc:
+            logger.warning("Kunne ikke lese %s: %s", _GENERATED_GRUNN, exc)
+    paths = _latest_run_paths()
+    if paths and paths[0] and str(paths[0]).lower().endswith(".csv"):
+        try:
+            return _read_grunn_csv(paths[0])
+        except Exception as exc:
+            logger.warning("Kunne ikke lese %s: %s", paths[0], exc)
+    return None
+
+
+def _fusjon_source() -> tuple[pd.DataFrame, str]:
+    """The frame a merge is applied to, plus a label for the UI.
+
+    The active upload comes first so a merge can be layered on top of hand
+    edits (and so two mergers can be applied one after the other).
+    """
+    if _UPLOADED_GRUNN.exists():
+        return _read_grunn_csv(_UPLOADED_GRUNN), "aktiv grunnlagsdata"
+    if _GENERATED_GRUNN.exists():
+        return _read_grunn_csv(_GENERATED_GRUNN), "generert grunnlagsdata"
+    paths = _latest_run_paths()
+    if paths and paths[0] and str(paths[0]).lower().endswith(".csv"):
+        return _read_grunn_csv(paths[0]), f"siste kjøring ({Path(paths[0]).name})"
+    raise HTTPException(
+        404,
+        "Ingen grunnlagsdata å fusjonere. Klikk «Generer grunnlagsdata» først, "
+        "eller last opp en fil.",
+    )
+
+
+@app.get("/api/fusjon-grunnlagsdata")
+def fusjon_grunnlagsdata_options():
+    """Companies available to merge, from whichever grunnlagsdata is active."""
+    df, kilde = _fusjon_source()
+    if "orgn" not in df.columns:
+        raise HTTPException(400, "Grunnlagsdata mangler 'orgn'.")
+    work = df.copy()
+    work["orgn"] = pd.to_numeric(work["orgn"], errors="coerce")
+    if fusjon_grunnlagsdata.SLETT_COL in work.columns:
+        keep = pd.to_numeric(work[fusjon_grunnlagsdata.SLETT_COL], errors="coerce").fillna(0) <= 0
+        work = work[keep]
+    work = work.dropna(subset=["orgn"])
+
+    selskaper = []
+    for orgn, grp in work.groupby("orgn"):
+        navn = str(grp["comp"].iloc[0]) if "comp" in grp.columns else str(int(orgn))
+        selskaper.append({"orgn": int(orgn), "comp": navn})
+    selskaper.sort(key=lambda s: s["comp"])
+    aar = sorted(int(y) for y in pd.to_numeric(work.get("y"), errors="coerce").dropna().unique()) \
+        if "y" in work.columns else []
+    return {"kilde": kilde, "selskaper": selskaper, "aar": aar}
+
+
+@app.post("/api/fusjon-grunnlagsdata")
+def fusjon_grunnlagsdata_apply(body: FusjonGrunnlagsdataRequest):
+    """Merge companies and stage the result as the active grunnlagsdata.
+
+    Aggregation follows NVE's own merge routine (``functions_nve.R``): costs,
+    capital, volumes and task variables are summed, ``ldz_*`` are weighted by
+    map grid cells, and the områdepriser are volume-weighted. Absorbed
+    companies are flagged ``_slett`` so ``IRiR.R`` removes them from the
+    reference set — deleting their rows would not, since the override step only
+    changes values in rows it finds.
+    """
+    if not body.grupper:
+        raise HTTPException(400, "Ingen fusjoner oppgitt.")
+
+    df, kilde = _fusjon_source()
+    grupper = [
+        fusjon_grunnlagsdata.FusjonGruppe(mottaker=g.mottaker, maal=list(g.maal))
+        for g in body.grupper
+    ]
+    try:
+        merged, rap = fusjon_grunnlagsdata.merge_companies(df, grupper)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    funn = fusjon_grunnlagsdata.validate_grunnlagsdata(
+        merged, ref=_reference_grunnlagsdata(), config_path=str(ROOT / "config.yaml")
+    )
+
+    _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(_UPLOADED_GRUNN, index=False, encoding="utf-8")
+
+    return _clean({
+        "ok": True,
+        "kilde": kilde,
+        "rader": len(merged),
+        "aar": rap.aar,
+        "grupper": rap.grupper,
+        "advarsler": rap.advarsler,
+        "behandling": {k: len(v) for k, v in rap.behandling.items()},
+        "behandling_kolonner": rap.behandling,
+        "selskaper_fjernet": sorted(
+            {n for g in rap.grupper for n in g["maal_navn"]}
+        ),
+        "validering": funn,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -1100,7 +1260,12 @@ async def generate_grunnlagsdata():
 
         # Place as the active grunnlagsdata override (same slot as a user upload)
         import shutil as _shutil
+        _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
         _shutil.copy2(tmp_path, str(_UPLOADED_GRUNN))
+        # Keep a second, pristine copy. A run consumes the slot above, so
+        # without this there is no clean baseline left to validate a later
+        # hand edit against, or to start a merge from.
+        _shutil.copy2(tmp_path, str(_GENERATED_GRUNN))
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 

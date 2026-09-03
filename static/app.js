@@ -198,6 +198,16 @@ function dashboard() {
     /* ── Grunnlagsdata upload ────────────── */
     grunnlag: { active: false, fileName: '', size: 0, uploading: false, dragOver: false },
     generatingGrunn: false,
+    // Findings from the last grunnlagsdata upload / merge. Shown rather than
+    // logged: a summed områdepris or rammevilkårsvariabel produces a plausible
+    // -looking run that is billions off, so it has to be visible in the UI.
+    grunnVarsel: { funn: [], delvis: [], kilde: '' },
+    fusjon: {
+      open: false, loading: false, running: false,
+      selskaper: [], kilde: '', aar: [],
+      mottaker: '', maal: [],
+      resultat: null,
+    },
 
     /* ── BaseData input-file overrides ─────── */
     inputFiles: [
@@ -428,7 +438,15 @@ function dashboard() {
         }
         const d = await res.json();
         this.grunnlag = { active: true, fileName: file.name, size: file.size, uploading: false, dragOver: false };
-        this.showToast(`Grunnlagsdata lastet opp: ${file.name}`);
+        this.grunnVarsel = { funn: d.validering || [], delvis: d.delvis_endret || [], kilde: file.name };
+        const feil = (d.validering || []).filter(f => f.level === 'error').length;
+        if (feil) {
+          this.showToast(`Lastet opp, men ${feil} verdi(er) kan ikke være riktige – se varselet`, 'error');
+        } else if ((d.validering || []).length || (d.delvis_endret || []).length) {
+          this.showToast(`Grunnlagsdata lastet opp – se merknader`, 'error');
+        } else {
+          this.showToast(`Grunnlagsdata lastet opp: ${file.name}`);
+        }
       } catch (e) {
         this.globalError = e.message;
       } finally {
@@ -439,6 +457,8 @@ function dashboard() {
     async clearGrunnlagsdata() {
       await fetch('/api/upload-grunnlagsdata', { method: 'DELETE' });
       this.grunnlag = { active: false, fileName: '', size: 0, uploading: false, dragOver: false };
+      this.grunnVarsel = { funn: [], delvis: [], kilde: '' };
+      this.fusjon.resultat = null;
       this.showToast('Grunnlagsdata fjernet – bruker siste R-kjøring');
     },
 
@@ -447,15 +467,87 @@ function dashboard() {
       try {
         const data = await this.api('GET', '/api/generate-grunnlagsdata');
         this.grunnlag = { active: true, fileName: data.filename, size: data.size, uploading: false, dragOver: false };
+        this.grunnVarsel = { funn: [], delvis: [], kilde: '' };
+        this.fusjon.resultat = null;
         this.showToast('Grunnlagsdata generert – tilgjengelig i Rediger CSV-filer');
         // Load it into the CSV editor automatically
         this.csvEdit.file = '';
         await this.loadRunCsvFiles('__uploaded__');
+        if (this.fusjon.open) await this.loadFusjonSelskaper();
       } catch (e) {
         this.globalError = e.message;
       } finally {
         this.generatingGrunn = false;
       }
+    },
+
+    // ─── Fusjon på grunnlagsdatanivå ─────────
+
+    async toggleFusjon() {
+      this.fusjon.open = !this.fusjon.open;
+      if (this.fusjon.open && !this.fusjon.selskaper.length) await this.loadFusjonSelskaper();
+    },
+
+    async loadFusjonSelskaper() {
+      this.fusjon.loading = true;
+      try {
+        const d = await this.api('GET', '/api/fusjon-grunnlagsdata');
+        this.fusjon.selskaper = d.selskaper || [];
+        this.fusjon.kilde = d.kilde || '';
+        this.fusjon.aar = d.aar || [];
+      } catch (e) {
+        this.globalError = e.message;
+        this.fusjon.selskaper = [];
+      } finally {
+        this.fusjon.loading = false;
+      }
+    },
+
+    // Candidates for absorption — never the receiver itself.
+    fusjonMaalKandidater() {
+      const m = String(this.fusjon.mottaker);
+      return this.fusjon.selskaper.filter(s => String(s.orgn) !== m);
+    },
+
+    toggleFusjonMaal(orgn) {
+      const i = this.fusjon.maal.indexOf(orgn);
+      if (i === -1) this.fusjon.maal.push(orgn);
+      else this.fusjon.maal.splice(i, 1);
+    },
+
+    async applyFusjon() {
+      if (!this.fusjon.mottaker || !this.fusjon.maal.length) return;
+      this.fusjon.running = true;
+      this.globalError = '';
+      try {
+        const d = await this.api('POST', '/api/fusjon-grunnlagsdata', {
+          grupper: [{
+            mottaker: Number(this.fusjon.mottaker),
+            maal: this.fusjon.maal.map(Number),
+          }],
+        });
+        this.fusjon.resultat = d;
+        this.grunnVarsel = { funn: d.validering || [], delvis: [], kilde: 'fusjon' };
+        this.grunnlag = {
+          active: true, fileName: 'fusjonert grunnlagsdata',
+          size: 0, uploading: false, dragOver: false,
+        };
+        this.showToast(`Fusjonert – ${d.selskaper_fjernet.length} selskap fjernet. Klikk Start for å kjøre.`);
+        // The receiver's row changed, so the merged frame is what a run must use.
+        await this.loadFusjonSelskaper();
+        this.fusjon.maal = [];
+      } catch (e) {
+        this.globalError = e.message;
+      } finally {
+        this.fusjon.running = false;
+      }
+    },
+
+    fusjonPris(gruppe, kol) {
+      const rows = (gruppe.priser || {})[kol] || [];
+      if (!rows.length) return null;
+      // Show the cost-base year — the last one present.
+      return rows[rows.length - 1];
     },
 
     downloadRun(runName) {

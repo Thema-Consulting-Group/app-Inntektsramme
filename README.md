@@ -37,6 +37,46 @@ Appen er delt i tre steg – naviger med knappene øverst.
 Klikk **Kjør RME Modell** for å kjøre modellen. Resultater lagres automatisk i `Results/`.
 Når kjøringen er ferdig kan du laste ned tabellen som CSV eller Excel.
 
+#### Fusjonere selskaper før kjøring
+Panelet **Fusjoner selskaper** slår sammen selskaper i grunnlagsdata før modellen
+kjører. Velg overtakende selskap, kryss av dem som skal fusjoneres inn, og klikk
+**Fusjoner** — deretter **Start**.
+
+Dette erstatter den gamle framgangsmåten (last ned grunnlagsdata, summer rader i
+Excel, last opp igjen), som gikk galt på tre måter uten å gi feilmelding:
+
+| Kolonnetype | Riktig behandling | Hva summering gjør |
+|---|---|---|
+| Kostnader, kapital, volum, oppgaver | Summeres | — |
+| `ldz_*` (rammevilkår) | Vektes med kartruter (`ldz_mgc`) | Frosttimer tredobles, skogandeler over 1 |
+| `pnl.rc`, `ap.t_2` (områdepriser) | Volumvektes med `ld_nl + rd_nl` | Nettapskostnaden blåses opp |
+
+Prisfeilen er den alvorligste. Nettapskostnaden er `volum × pnl.rc`, så en summert
+pris multipliseres med et summert volum. For Tensio TN + Tensio TS + Elvia blir
+prisen 0,624 + 0,359 + 0,381 = 1,365 kr/kWh — over dobbelt så høyt som den dyreste
+områdeprisen som finnes — og nettapskostnaden i LD og RD kommer ut ~1,5 mrd kr for
+høyt. Riktig pris er det volumvektede snittet, 0,563, altså *lavere* enn Elvias
+egen pris, siden NO3 er billigere enn NO1.
+
+To ting til er verdt å kjenne:
+
+* **Sammenslåingen gjelder alle år.** Pensjonsgrunnlaget og DEAs inn- og utdata er
+  femårssnitt, så en fusjon som bare treffer kostnadsgrunnlagsåret gir en enhet som
+  benchmarkes på en femtedel av sin egen størrelse.
+* **Overtakende selskap beholder org.nr og navn**, og dermed også en eventuell
+  manuell DEA-overstyring i `config.yaml` og kundetillegget sitt.
+
+De innfusjonerte selskapene fjernes helt — fra referansesettet i DEA og fra
+kalibreringen. Å slette radene deres i CSV-en gjør *ikke* dette: overstyringssteget
+matcher på `(orgn, år)` og endrer bare verdier i rader det finner, så et selskap som
+mangler i opplastingen står urørt i modellen. Panelet skriver i stedet kolonnen
+`_slett` (1 = fjern selskapet), som `IRiR.R` filtrerer på. Kolonnen kan også settes
+for hånd i en redigert CSV.
+
+Laster du opp grunnlagsdata selv, sjekkes filen ved opplasting: områdepriser må ligge
+innenfor `forutsetninger.omradepriser`, rammevilkårsvariabler innenfor bransjens
+intervall, og selskaper som er endret i bare noen av årene blir flagget.
+
 #### Flerårsark
 Under resultattabellen ligger panelet **Flerårsark**, som framskriver inntektsrammearket
 for alle selskaper og gir **ett ark per år**. Klikk **Bygg flerårsark**, og last ned med

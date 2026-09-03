@@ -105,7 +105,7 @@
     .ov$orgn <- as.integer(.ov$orgn)
     # Columns to update: everything present in both dat and the override file,
     # excluding row-index / key columns that must not be changed.
-    .skip <- c("X", "orgn", "y", "id", "comp", "id.y", "orgn.y")
+    .skip <- c("X", "orgn", "y", "id", "comp", "id.y", "orgn.y", "_slett")
     .override_cols <- setdiff(intersect(names(dat), names(.ov)), .skip)
     .n_changed <- 0L
     for (.i in seq_len(nrow(.ov))) {
@@ -121,6 +121,34 @@
     }
     cat("[override] Applied", .n_changed, "value overrides across",
         nrow(.ov), "company-year rows\n")
+
+    # ── Remove companies flagged with _slett ────────────────────────────────
+    # The loop above can only *change* values in rows it finds by (orgn, y).
+    # A company left out of the upload is therefore untouched, not removed —
+    # which is why deleting rows in Excel to model a merger silently keeps the
+    # absorbed companies in the model at their original data, double-counting
+    # them against the receiver. The _slett column (written by the fusion
+    # panel, or by hand) is the only way a company actually leaves the
+    # reference set and the calibration.
+    if ("_slett" %in% names(.ov)) {
+      .slett_num <- suppressWarnings(as.numeric(.ov[["_slett"]]))
+      .drop_orgn <- unique(.ov$orgn[!is.na(.slett_num) & .slett_num > 0])
+      .drop_orgn <- .drop_orgn[!is.na(.drop_orgn)]
+      rm(.slett_num)
+      if (length(.drop_orgn) > 0L) {
+        .drop_rows <- which(dat$orgn %in% .drop_orgn)
+        .drop_names <- unique(dat$comp[.drop_rows])
+        if (length(.drop_rows) == nrow(dat)) {
+          stop("[override] _slett ville fjernet samtlige selskaper - avbryter.")
+        }
+        if (length(.drop_rows) > 0L) dat <- dat[-.drop_rows, , drop = FALSE]
+        cat("[override] Removed", length(.drop_orgn), "companies (",
+            length(.drop_rows), "rows ):", paste(.drop_names, collapse = ", "), "\n")
+        cat("[override]", length(unique(dat$orgn)), "companies remain\n")
+        rm(.drop_rows, .drop_names)
+      }
+      rm(.drop_orgn)
+    }
     rm(.uploaded_grunn, .ov, .skip, .override_cols, .n_changed, .i, .idx, .col, .val)
   }
   # ─────────────────────────────────────────────────────────────────────────────

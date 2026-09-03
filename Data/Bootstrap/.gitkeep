@@ -1,0 +1,3 @@
+Bootstrap-estimatene i denne mappa er gitignorert (de regnes på nytt hver kjøring,
+IRiR.R: BS.new = 1), men mappa må finnes: 2_0_GeoCorrection.R skriver ld_bs.csv hit
+og R feiler med "cannot open the connection" hvis katalogen mangler.

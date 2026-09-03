@@ -227,6 +227,136 @@
                 <span x-show="grunnlag.dragOver && !grunnlag.uploading"
                       class="text-[10px] text-blue-500 font-medium shrink-0">Slipp</span>
               </label>
+
+              <!-- Validering av grunnlagsdata -->
+              <template x-if="grunnVarsel.funn.length || grunnVarsel.delvis.length">
+                <div class="mt-1.5 rounded-lg border p-2"
+                     :class="grunnVarsel.funn.some(f => f.level === 'error')
+                       ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'">
+                  <div class="flex items-start justify-between gap-2">
+                    <p class="text-[10px] font-bold uppercase tracking-widest"
+                       :class="grunnVarsel.funn.some(f => f.level === 'error') ? 'text-red-600' : 'text-amber-600'"
+                       x-text="grunnVarsel.funn.some(f => f.level === 'error')
+                         ? 'Grunnlagsdata: verdier som ikke kan være riktige'
+                         : 'Grunnlagsdata: merknader'"></p>
+                    <button @click="grunnVarsel = { funn: [], delvis: [], kilde: '' }"
+                            class="text-slate-400 hover:text-slate-600 text-sm leading-none shrink-0"
+                            title="Skjul">✕</button>
+                  </div>
+                  <template x-for="f in grunnVarsel.funn" :key="f.column + '-' + f.orgn">
+                    <p class="text-[10px] mt-1 leading-snug"
+                       :class="f.level === 'error' ? 'text-red-700' : 'text-amber-700'"
+                       x-text="f.message"></p>
+                  </template>
+                  <template x-for="d in grunnVarsel.delvis" :key="'delvis-' + d.orgn">
+                    <p class="text-[10px] mt-1 leading-snug text-amber-700" x-text="d.message"></p>
+                  </template>
+                </div>
+              </template>
+            </div>
+
+            <!-- Fusjon av selskaper -->
+            <div class="border-t border-slate-100 mx-3 mt-1"></div>
+            <div class="px-3 py-2">
+              <button @click="toggleFusjon()"
+                      class="w-full flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-50 transition-colors">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fusjoner selskaper</span>
+                <span class="text-slate-400 text-xs" x-text="fusjon.open ? '▾' : '▸'"></span>
+              </button>
+
+              <div x-show="fusjon.open" x-transition class="mt-1.5 space-y-2">
+                <template x-if="fusjon.loading">
+                  <p class="text-[10px] text-slate-400 px-2">Laster selskaper …</p>
+                </template>
+
+                <template x-if="!fusjon.loading && !fusjon.selskaper.length">
+                  <p class="text-[10px] text-slate-400 px-2">
+                    Ingen grunnlagsdata tilgjengelig. Klikk «Generer grunnlagsdata» først.
+                  </p>
+                </template>
+
+                <template x-if="fusjon.selskaper.length">
+                  <div class="space-y-2">
+                    <div class="px-2">
+                      <label class="text-[10px] font-medium text-slate-500">Overtakende selskap</label>
+                      <select x-model="fusjon.mottaker"
+                              class="w-full mt-0.5 text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white">
+                        <option value="">Velg selskap …</option>
+                        <template x-for="s in fusjon.selskaper" :key="s.orgn">
+                          <option :value="s.orgn" x-text="s.comp"></option>
+                        </template>
+                      </select>
+                    </div>
+
+                    <div class="px-2" x-show="fusjon.mottaker">
+                      <label class="text-[10px] font-medium text-slate-500">
+                        Fusjoneres inn <span x-show="fusjon.maal.length" class="text-slate-400"
+                          x-text="'(' + fusjon.maal.length + ' valgt)'"></span>
+                      </label>
+                      <div class="mt-0.5 max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-50">
+                        <template x-for="s in fusjonMaalKandidater()" :key="s.orgn">
+                          <label class="flex items-center gap-2 px-2 py-1 hover:bg-slate-50 cursor-pointer">
+                            <input type="checkbox" class="shrink-0"
+                                   :checked="fusjon.maal.includes(s.orgn)"
+                                   @change="toggleFusjonMaal(s.orgn)">
+                            <span class="text-xs text-slate-700 truncate" x-text="s.comp"></span>
+                          </label>
+                        </template>
+                      </div>
+                    </div>
+
+                    <div class="px-2">
+                      <button @click="applyFusjon()"
+                              :disabled="!fusjon.mottaker || !fusjon.maal.length || fusjon.running"
+                              class="btn-secondary w-full text-xs flex items-center justify-center gap-1.5">
+                        <span x-show="!fusjon.running">Fusjoner</span>
+                        <span x-show="fusjon.running" class="flex items-center gap-1.5">
+                          <span class="w-3 h-3 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></span>
+                          Fusjonerer …
+                        </span>
+                      </button>
+                    </div>
+
+                    <!-- Resultat -->
+                    <template x-if="fusjon.resultat">
+                      <div class="mx-2 rounded-lg bg-emerald-50 border border-emerald-200 p-2">
+                        <template x-for="g in fusjon.resultat.grupper" :key="g.mottaker">
+                          <div>
+                            <p class="text-[11px] font-semibold text-emerald-800 leading-snug">
+                              <span x-text="g.mottaker_navn"></span>
+                              <span class="font-normal text-emerald-700">
+                                ← <span x-text="g.maal_navn.join(', ')"></span></span>
+                            </p>
+                            <template x-for="kol in ['pnl.rc', 'ap.t_2']" :key="kol">
+                              <template x-if="fusjonPris(g, kol)">
+                                <p class="text-[10px] text-emerald-700 mt-1 leading-snug">
+                                  <span class="font-mono" x-text="kol"></span>
+                                  <span x-text="' ' + fusjonPris(g, kol).aar + ': '"></span>
+                                  <span x-text="Number(fusjonPris(g, kol).foer).toFixed(6)"></span>
+                                  →
+                                  <span class="font-semibold"
+                                        x-text="Number(fusjonPris(g, kol).etter).toFixed(6)"></span>
+                                </p>
+                              </template>
+                            </template>
+                          </div>
+                        </template>
+                        <p class="text-[10px] text-emerald-700 mt-1.5 leading-snug"
+                           x-text="'Alle år (' + fusjon.resultat.aar.join(', ') + ') · ' +
+                             fusjon.resultat.behandling.sum + ' summert, ' +
+                             fusjon.resultat.behandling.volumvektet + ' volumvektet, ' +
+                             fusjon.resultat.behandling.kartrutevektet + ' kartrutevektet'"></p>
+                        <template x-for="w in fusjon.resultat.advarsler" :key="w">
+                          <p class="text-[10px] text-amber-700 mt-1 leading-snug" x-text="w"></p>
+                        </template>
+                        <p class="text-[10px] font-medium text-emerald-800 mt-1.5">
+                          Klikk Start for å kjøre modellen på det fusjonerte grunnlaget.
+                        </p>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
             </div>
 
             <!-- Run + Download buttons -->

@@ -13,6 +13,12 @@ rme_table_forecast.xlsx
 # hver merge. Den ligger fortsatt lokalt og gjenbrukes hvis BS.new settes til 0.
 /Data/Bootstrap/*.csv
 
+# Grunnlagsdata regenereres av R (Generer grunnlagsdata / RME-kjøring). Den
+# opplastede fila forbrukes av en kjøring, og _generert er bare en ren kopi av
+# samme R-utdata — ingen av dem er kildedata.
+/Data/grunnlagsdata_uploaded.csv
+/Data/grunnlagsdata_generert.csv
+
 # Kildedokumenter (analyser, presentasjoner) holdes utenfor repoet — de er store
 # binærfiler som ikke kan diffes. Legg dem gjerne i mappa lokalt.
 *.pdf
