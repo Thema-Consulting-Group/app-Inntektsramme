@@ -248,6 +248,8 @@ function dashboard() {
       saving:         false,
       file:           '',
       availableFiles: [],
+      // Why the file list is empty — «Last inn» is gated on csvEdit.file.
+      filesError:     '',
       columns:        [],
       rows:           [],
       dirty:          false,
@@ -269,6 +271,10 @@ function dashboard() {
 
     /* ── Tab 4: Frontier ─────────────────── */
     deaCompanies: [],
+    // Why the DEA company list is empty. «Kjør frontanalyse» is gated on
+    // dea.focusId, which is only ever set from this list, so a silent failure
+    // here shows up as a permanently greyed button.
+    deaCompaniesError: '',
     dea: {
       focusId:     '',
       excludeIds:  [],
@@ -335,6 +341,52 @@ function dashboard() {
         this.latestRun     = '';
         this.runsError     = e.message;
       }
+    },
+
+    // Every dropdown fed from a run has the same three empty states, so the
+    // same three fixes. Kept in one place because naming the wrong one sends
+    // the user off to a step that fails the same way — and the controls gated
+    // on those dropdowns just look broken while it does.
+    // Returns { msg, fatal } — fatal also earns the red top-bar badge.
+    _emptyRunReason(err, what) {
+      if (this.runsError) {
+        // The server never answered: Start i Steg 1 would fail too.
+        return {
+          msg: `Får ikke kontakt med serveren (${this.runsError}). Sjekk at appen kjører, og prøv igjen.`,
+          fatal: true,
+        };
+      }
+      if (!this.selectedRun && !this.latestRun) {
+        // No run yet is the normal cold-start state, not a fault.
+        return { msg: 'Ingen kjøring funnet ennå. Klikk Start i Steg 1 for å kjøre modellen.', fatal: false };
+      }
+      // The run exists but can't be read — typically missing
+      // «Til inntektsrammeark.xlsx», which /api/runs does not check for, so the
+      // picker still shows the run as complete. Retrying the same run cannot
+      // help; an older run or a fresh pipeline run can.
+      const run = this.selectedRun || this.latestRun;
+      return {
+        msg: `Kunne ikke laste ${what} fra «${run}»: ${err.message} — velg en tidligere kjøring med ‹ i kjøringsvelgeren, eller kjør modellen på nytt i Steg 1.`,
+        fatal: true,
+      };
+    },
+
+    // Why the run picker has nothing to step through, '' when it is usable.
+    // The ‹ › arrows and Last ned are gated on this list, so an empty one has
+    // to say why: /api/runs never answered, Results/ is empty, or the runs
+    // there are incomplete (a run needs grunnlagsdata + Data_Resultater_LD/RD
+    // before /api/runs will call it complete).
+    get runsHint() {
+      if (this.runsError) {
+        return `Får ikke kontakt med serveren (${this.runsError}). Sjekk at appen kjører, og last siden på nytt.`;
+      }
+      if (!this.availableRuns.length) {
+        return 'Ingen kjøringer i Results/ ennå — klikk Start for å kjøre modellen.';
+      }
+      if (!this.availableRuns.some(r => r.complete)) {
+        return 'Ingen fullførte kjøringer — kjøringene i Results/ mangler grunnlagsdata eller Data_Resultater-filer. Klikk Start for en ny kjøring.';
+      }
+      return '';
     },
 
     // Returns '?run_name=Run_...' if a specific run is selected, else ''
@@ -1109,27 +1161,9 @@ function dashboard() {
           this.progCompanies = rows(data?.table ?? []);
         } catch (e) {
           this.progCompanies = [];
-          // Three empty states, three different fixes — naming the wrong one
-          // sends the user off to a step that fails the same way.
-          if (this.runsError) {
-            // Server never answered: Start i Steg 1 would fail too.
-            this.progCompaniesError =
-              `Får ikke kontakt med serveren (${this.runsError}). Sjekk at appen kjører, og prøv igjen.`;
-            this.globalError = this.progCompaniesError;
-          } else if (!this.selectedRun && !this.latestRun) {
-            // No run yet is the normal cold-start state, not a fault — say so
-            // plainly rather than dressing it up as an error.
-            this.progCompaniesError = 'Ingen kjøring funnet ennå. Klikk Start i Steg 1 for å kjøre modellen.';
-          } else {
-            // The run exists but can't be read — typically missing
-            // «Til inntektsrammeark.xlsx», which /api/runs does not check for,
-            // so the picker still shows the run as complete. Retrying the same
-            // run cannot help; an older run or a fresh pipeline run can.
-            const run = this.selectedRun || this.latestRun;
-            this.progCompaniesError =
-              `Kunne ikke laste selskapslisten fra «${run}»: ${e.message} — velg en tidligere kjøring med ‹ i kjøringsvelgeren, eller kjør modellen på nytt i Steg 1.`;
-            this.globalError = this.progCompaniesError;
-          }
+          const { msg, fatal } = this._emptyRunReason(e, 'selskapslisten');
+          this.progCompaniesError = msg;
+          if (fatal) this.globalError = msg;
           return;
         }
       }
@@ -1383,6 +1417,7 @@ function dashboard() {
 
     // ── CSV editor ───────────────────────────
     async loadRunCsvFiles(runOverride) {
+      this.csvEdit.filesError = '';
       const run = runOverride ?? this.selectedRun ?? '';
       const qs  = run ? `?run_name=${encodeURIComponent(run)}` : '';
       try {
@@ -1401,7 +1436,14 @@ function dashboard() {
             this.csvEdit.file = names[0] ?? '';
           }
         }
-      } catch(e) { /* silent */ }
+      } catch (e) {
+        // Gated the same way as everything else fed from a run: an empty file
+        // dropdown greys «Last inn», so say why instead of dropping the error.
+        if (runOverride !== '__uploaded__') this.csvEdit.availableFiles = [];
+        const { msg, fatal } = this._emptyRunReason(e, 'filene i kjøringen');
+        this.csvEdit.filesError = msg;
+        if (fatal) this.globalError = msg;
+      }
     },
 
     async loadRunCsv() {
@@ -1468,7 +1510,10 @@ function dashboard() {
 
     // ─── Tab 4 ───────────────────────────────
 
+    // See loadProgCompanies — same contract: never swallow the error, or
+    // «Kjør frontanalyse» greys out with nothing on screen to explain it.
     async loadDeaCompanies() {
+      this.deaCompaniesError = '';
       try {
         const data = await this.api('GET', `/api/ld-dea${this._runQs()}`);
         this.deaCompanies = (data.companies ?? []).sort((a, b) =>
@@ -1477,7 +1522,24 @@ function dashboard() {
         // Default focus to NETTSELSKAPET AS
         const ns = this.deaCompanies.find(c => c.comp?.includes('NETTSELSKAPET'));
         if (ns) this.dea.focusId = ns.id;
-      } catch (_) {}
+      } catch (e) {
+        this.deaCompanies = [];
+        const { msg, fatal } = this._emptyRunReason(e, 'DEA-selskapene');
+        this.deaCompaniesError = msg;
+        if (fatal) this.globalError = msg;
+        return;
+      }
+      if (!this.deaCompanies.length) {
+        this.deaCompaniesError =
+          'Kjøringen inneholder ingen DEA-selskaper. Prøv en annen kjøring.';
+      }
+    },
+
+    // "Prøv igjen" behind the empty DEA list — run list first, see
+    // retryProgCompanies.
+    async retryDeaCompanies() {
+      await this.fetchLatestRun();
+      await this.loadDeaCompanies();
     },
 
     async runScenario() {

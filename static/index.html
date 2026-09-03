@@ -86,7 +86,9 @@
       <h1 class="text-base font-semibold text-slate-800" x-text="currentTabLabel"></h1>
 
       <!-- Run picker pill — visible only in RME tab -->
-      <div x-show="tab === 'rme'" x-cloak
+      <!-- title carries runsHint: the ‹ › arrows grey out whenever there is no
+           complete run to step to, and a disabled button explains nothing. -->
+      <div x-show="tab === 'rme'" x-cloak :title="runsHint"
            class="flex items-center gap-0.5 bg-slate-50 border border-slate-200 rounded-full px-1 py-0.5 mx-auto">
         <button @click="stepRun(1)"
                 :disabled="availableRuns.filter(r=>r.complete).length === 0 || selectedRun === availableRuns.filter(r=>r.complete).at(-1)?.name"
@@ -375,6 +377,11 @@
                 ⬇ Last ned
               </button>
             </div>
+            <!-- Last ned and the run picker are both gated on the run list, so
+                 an empty one has to say why it is empty. -->
+            <p x-show="runsHint" x-cloak class="px-3 pb-3 -mt-2 text-[11px]"
+               :class="runsError ? 'text-red-600' : 'text-slate-400'"
+               x-text="runsHint"></p>
           </div>
 
           <!-- ── RIGHT: Results panel ── -->
@@ -639,6 +646,11 @@
                   <span x-show="csvEdit.saving">Lagrer…</span>
                 </button>
               </div>
+              <!-- «Last inn» is gated on csvEdit.file, so an empty dropdown
+                   has to explain itself rather than just greying the button. -->
+              <p x-show="!csvEdit.availableFiles.length" class="text-[11px] mb-2"
+                 :class="csvEdit.filesError ? 'text-red-600' : 'text-slate-400'"
+                 x-text="csvEdit.filesError || 'Ingen filer i denne kjøringen — velg en annen kjøring, eller klikk ↺.'"></p>
               <p x-show="csvEdit.runName" class="text-xs text-slate-400 mb-2"
                  x-text="'Kjøring: ' + csvEdit.runName + (csvEdit.dirty ? ' · Ulagrede endringer' : ' · Ingen endringer')"></p>
               <div x-show="csvEdit.rows.length" class="overflow-x-auto max-h-80 overflow-y-auto">
@@ -705,6 +717,15 @@
                     <option :value="c.orgn" x-text="c.name"></option>
                   </template>
                 </select>
+                <!-- Beregn prognose is gated on prog.orgn, which can only be
+                     picked from this list — so explain an empty one here too. -->
+                <div x-show="!progCompanies.length" class="mt-1 flex items-start gap-2">
+                  <p class="text-[11px]"
+                     :class="progCompaniesError ? 'text-red-600' : 'text-slate-400'"
+                     x-text="progCompaniesError || 'Ingen selskaper lastet — gå til Steg 1 og velg en kjøring først.'"></p>
+                  <button @click="retryProgCompanies()"
+                          class="text-[11px] text-brand-600 hover:underline shrink-0">Prøv igjen</button>
+                </div>
               </div>
 
               <div>
@@ -1459,6 +1480,15 @@
                 <option :value="c.id" x-text="c.comp"></option>
               </template>
             </select>
+            <!-- Kjør frontanalyse is gated on dea.focusId, and focusId is only
+                 ever set from this list. -->
+            <div x-show="!deaCompanies.length" class="mt-1 flex items-start gap-2">
+              <p class="text-[11px]"
+                 :class="deaCompaniesError ? 'text-red-600' : 'text-slate-400'"
+                 x-text="deaCompaniesError || 'Ingen selskaper lastet — gå til Steg 1 og velg en kjøring først.'"></p>
+              <button @click="retryDeaCompanies()"
+                      class="text-[11px] text-brand-600 hover:underline shrink-0">Prøv igjen</button>
+            </div>
           </div>
           <div class="card p-4">
             <label class="label">Fjern fra DEA-en (fusjon/utgang)</label>
