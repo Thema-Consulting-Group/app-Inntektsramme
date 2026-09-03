@@ -145,6 +145,11 @@ function dashboard() {
     latestRun:    '',
     selectedRun:  '',   // '' = always use latest
     availableRuns: [],  // [{name, complete}] populated from /api/runs
+    // Why the run list is empty. Only set when /api/runs itself failed, i.e.
+    // the server never answered — kept apart from "no runs yet" because the
+    // fix is to start the app, not to click Start in Steg 1 (which would fail
+    // the same way).
+    runsError:    '',
 
     /* ── Tab 1: RME ──────────────────────── */
     pipelineRunning: false,
@@ -320,11 +325,16 @@ function dashboard() {
     // ─── Runs ────────────────────────────────
 
     async fetchLatestRun() {
+      this.runsError = '';
       try {
         const data = await this.api('GET', '/api/runs');
         this.availableRuns = (data.runs ?? []);
         this.latestRun = this.availableRuns[0]?.name ?? '';
-      } catch (_) {}
+      } catch (e) {
+        this.availableRuns = [];
+        this.latestRun     = '';
+        this.runsError     = e.message;
+      }
     },
 
     // Returns '?run_name=Run_...' if a specific run is selected, else ''
@@ -1066,6 +1076,14 @@ function dashboard() {
 
     // ─── Tab 2 ───────────────────────────────
 
+    // "Prøv igjen" behind the empty-list message. Re-fetches the run list
+    // first: when the server was down, reloading only the company list would
+    // keep reporting the stale runsError.
+    async retryProgCompanies() {
+      await this.fetchLatestRun();
+      await this.loadProgCompanies();
+    },
+
     // Companies for every Selskap dropdown. Several buttons are gated on this
     // list (⟳ Beregn fusjon, ⟳ Oppdater, Kjør prognose), so a silent failure
     // here shows up as a permanently greyed button — always leave a reason in
@@ -1091,12 +1109,25 @@ function dashboard() {
           this.progCompanies = rows(data?.table ?? []);
         } catch (e) {
           this.progCompanies = [];
-          // No run yet is the normal cold-start state, not a fault — say so
-          // plainly rather than dressing it up as an error.
-          if (!this.selectedRun && !this.latestRun) {
+          // Three empty states, three different fixes — naming the wrong one
+          // sends the user off to a step that fails the same way.
+          if (this.runsError) {
+            // Server never answered: Start i Steg 1 would fail too.
+            this.progCompaniesError =
+              `Får ikke kontakt med serveren (${this.runsError}). Sjekk at appen kjører, og prøv igjen.`;
+            this.globalError = this.progCompaniesError;
+          } else if (!this.selectedRun && !this.latestRun) {
+            // No run yet is the normal cold-start state, not a fault — say so
+            // plainly rather than dressing it up as an error.
             this.progCompaniesError = 'Ingen kjøring funnet ennå. Klikk Start i Steg 1 for å kjøre modellen.';
           } else {
-            this.progCompaniesError = `Kunne ikke laste selskapslisten: ${e.message}`;
+            // The run exists but can't be read — typically missing
+            // «Til inntektsrammeark.xlsx», which /api/runs does not check for,
+            // so the picker still shows the run as complete. Retrying the same
+            // run cannot help; an older run or a fresh pipeline run can.
+            const run = this.selectedRun || this.latestRun;
+            this.progCompaniesError =
+              `Kunne ikke laste selskapslisten fra «${run}»: ${e.message} — velg en tidligere kjøring med ‹ i kjøringsvelgeren, eller kjør modellen på nytt i Steg 1.`;
             this.globalError = this.progCompaniesError;
           }
           return;
