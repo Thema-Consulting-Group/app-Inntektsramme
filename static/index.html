@@ -491,7 +491,7 @@
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <template x-for="col in (irExpanded ? irColumns : irColumns.filter(c => ['Selskap','inntektsramme 2026','D&V-kostnader eks utredningskostnader','Årslønn-justerte D&V-kostnader eks utredningskostnader','AVS','BFV','AKG (inkl 1 % arbeids-kapital)','Kraftpris kr/MWh'].includes(c)))" :key="col">
+                      <template x-for="col in (irExpanded ? irColumns : irColumns.filter(c => ['Selskap','inntektsramme 2026','D&V-kostnader eks utredningskostnader','Årslønn-justerte D&V-kostnader eks utredningskostnader','AVS','BFV','AKG (inkl 1 % arbeids-kapital)','Kraftpris kr/MWh','Frontselskap D-nett','Frontselskap R-nett'].includes(c)))" :key="col">
                         <th x-text="col" @click="sortTable('irTable', col)" class="cursor-pointer select-none"></th>
                       </template>
                     </tr>
@@ -499,7 +499,7 @@
                   <tbody>
                     <template x-for="(row, ri) in irTable" :key="ri">
                       <tr>
-                        <template x-for="col in (irExpanded ? irColumns : irColumns.filter(c => ['Selskap','inntektsramme 2026','D&V-kostnader eks utredningskostnader','Årslønn-justerte D&V-kostnader eks utredningskostnader','AVS','BFV','AKG (inkl 1 % arbeids-kapital)','Kraftpris kr/MWh'].includes(c)))" :key="col">
+                        <template x-for="col in (irExpanded ? irColumns : irColumns.filter(c => ['Selskap','inntektsramme 2026','D&V-kostnader eks utredningskostnader','Årslønn-justerte D&V-kostnader eks utredningskostnader','AVS','BFV','AKG (inkl 1 % arbeids-kapital)','Kraftpris kr/MWh','Frontselskap D-nett','Frontselskap R-nett'].includes(c)))" :key="col">
                           <td x-text="fmtCell(row[col])"></td>
                         </template>
                       </tr>

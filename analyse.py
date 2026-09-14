@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 from flerarsark import ARK_BASE_YEAR, build_flerarsark
-from inntektsramme import RevenueCapCalculator
+from inntektsramme import RevenueCapCalculator, front_weights
 from prognose import FORECAST_YEARS
 
 logger = logging.getLogger(__name__)
@@ -155,26 +155,11 @@ def clear_cache():
 # Frontselskap
 # ---------------------------------------------------------------------------
 
-def _front_level(res: pd.DataFrame, prefix: str) -> dict:
-    """Returner {orgn: [(navn, vekt)]} for ett nettnivå, sortert på fallende vekt."""
-    cols = [c for c in res.columns if c.startswith(f"{prefix}_ncs_")]
-    if not cols:
-        return {}
-    names = [c[len(f"{prefix}_ncs_"):] for c in cols]
-    per_orgn: dict[int, list[tuple[str, float]]] = {}
-    for _, row in res.iterrows():
-        aktive = [(n, float(row[c] or 0)) for n, c in zip(names, cols)
-                  if float(row[c] or 0) > 1e-6]
-        if aktive:
-            per_orgn[int(row["orgn"])] = sorted(aktive, key=lambda t: -t[1])
-    return per_orgn
-
-
 def load_frontselskap(rc: RevenueCapCalculator) -> dict:
     """Referansevekter mot frontselskap, per nettnivå."""
     return {
-        "D-nett": _front_level(rc.data.res_ld, "ld"),
-        "R-nett": _front_level(rc.data.res_rd, "rd"),
+        "D-nett": front_weights(rc.data.res_ld, "ld"),
+        "R-nett": front_weights(rc.data.res_rd, "rd"),
     }
 
 

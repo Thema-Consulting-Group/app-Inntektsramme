@@ -16,6 +16,38 @@ logger = logging.getLogger(__name__)
 pd.set_option("display.float_format", "{:.2f}".format)
 
 # ---------------------------------------------------------------------------
+# 0. Frontselskap (DEA-referanser)
+# ---------------------------------------------------------------------------
+
+def front_weights(res: pd.DataFrame, prefix: str) -> dict[int, list[tuple[str, float]]]:
+    """Returner {orgn: [(frontselskap, vekt)]} for ett nettnivå, fallende vekt.
+
+    RMEs DEA legger igjen én ``<prefix>_ncs_<selskap>``-kolonne per frontselskap
+    (``cost.norm.share``, filtrert på ``colSums > 0`` i Key_figures.R).
+    Kolonnenavnene *er* dermed fronten; verdiene er referansevektene, som
+    summerer til 1 per selskap — altså allerede andeler.  Egenvekten er med,
+    så et frontselskap står oppført som sin egen referanse.
+    """
+    cols = [c for c in res.columns if c.startswith(f"{prefix}_ncs_")]
+    if not cols:
+        return {}
+    names = [c[len(f"{prefix}_ncs_"):] for c in cols]
+    per_orgn: dict[int, list[tuple[str, float]]] = {}
+    for _, row in res.iterrows():
+        aktive = [(n, float(row[c] or 0)) for n, c in zip(names, cols)
+                  if float(row[c] or 0) > 1e-6]
+        if aktive:
+            per_orgn[int(row["orgn"])] = sorted(aktive, key=lambda t: -t[1])
+    return per_orgn
+
+
+def front_companies(res: pd.DataFrame, prefix: str) -> list[str]:
+    """Navnene på selskapene som utgjør fronten for ett nettnivå."""
+    return [c[len(f"{prefix}_ncs_"):]
+            for c in res.columns if c.startswith(f"{prefix}_ncs_")]
+
+
+# ---------------------------------------------------------------------------
 # 1. Config
 # ---------------------------------------------------------------------------
 
@@ -411,6 +443,35 @@ class RevenueCapCalculator:
         )
 
     # ------------------------------------------------------------------
+    def build_front_columns(self) -> pd.DataFrame:
+        """Frontselskap-kolonner, radjustert mot ``self.data.orgn``.
+
+        Per nettnivå gir DEA-en to opplysninger: om selskapet selv utgjør
+        fronten, og hvilke frontselskaper det måles mot (med vekt).  Begge
+        legges ved resultattabellen så de følger med i CSV-en også.
+        """
+        d = self.data
+        out: dict[str, pd.Series] = {}
+        for nivaa, res, prefix in (("D-nett", d.res_ld, "ld"),
+                                   ("R-nett", d.res_rd, "rd")):
+            vekter = front_weights(res, prefix)
+            # Kolonnenavnene er selskapsnavn fra DEA-arket, så fronten slås opp
+            # der og oversettes til orgn — ikke mot comp i IRiR-arket, som kan
+            # være skrevet annerledes.
+            front  = set(front_companies(res, prefix))
+            front_orgn = {int(r["orgn"]) for _, r in res.iterrows()
+                          if str(r["comp"]) in front}
+
+            out[f"Frontselskap {nivaa}"] = d.orgn.map(
+                lambda o: "Ja" if int(o) in front_orgn else ""
+            )
+            out[f"Frontreferanser {nivaa}"] = d.orgn.map(
+                lambda o: ", ".join(f"{n} {v * 100:.0f} %"
+                                    for n, v in vekter.get(int(o), []))
+            ).fillna("")
+        return pd.DataFrame(out)
+
+    # ------------------------------------------------------------------
     def calc_ir_foer_kalibrering(self) -> pd.Series:
         rho = self.cfg.rho
         kg = self.costs.kostnadsgrunnlag.fillna(0)
@@ -567,7 +628,7 @@ class RevenueCapCalculator:
             "Kraftpris kr/MWh": d.kraftpris,
         })
 
-        return df
+        return pd.concat([df, self.build_front_columns()], axis=1)
 
 
 # ---------------------------------------------------------------------------
