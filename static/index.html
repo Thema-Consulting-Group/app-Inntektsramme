@@ -121,7 +121,7 @@
     <!-- Content -->
     <main class="flex-1 overflow-y-auto px-6 py-6 space-y-6 relative">
 
-      <!-- ══════════ TAB 1: RME MODELL ══════════ -->
+      <!-- ══════════ TAB 1: DAGENS RME MODELL ══════════ -->
       <section x-show="tab === 'rme'" x-cloak>
         <div class="grid grid-cols-[272px_1fr] gap-6 items-start">
 
@@ -509,125 +509,6 @@
               </div>
             </div>
 
-            <!-- Flerårsark -->
-            <div x-show="irTable.length > 0" class="card p-0 overflow-hidden">
-              <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                <div>
-                  <span class="text-sm font-semibold">Flerårsark</span>
-                  <p class="text-[11px] text-slate-400">Inntektsrammearket framskrevet – ett ark per år</p>
-                </div>
-                <div class="flex items-center gap-2">
-                  <button @click="buildFlerarsark()" :disabled="flerar.loading"
-                          class="btn-secondary"
-                          x-text="flerar.loading ? 'Bygger…' : '⟳ Bygg flerårsark'"></button>
-                  <button x-show="flerar.years.length" @click="downloadFlerarsark()"
-                          class="btn-secondary" title="Last ned som Excel med ett ark per år">
-                    ⬇ Excel
-                  </button>
-                </div>
-              </div>
-
-              <!-- Forutsetninger -->
-              <div class="flex flex-wrap items-end gap-4 px-4 py-3 bg-slate-50 border-b border-slate-100">
-                <label class="flex flex-col gap-1">
-                  <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Til år</span>
-                  <input type="number" min="2026" max="2035" step="1" x-model.number="flerar.aarTil"
-                         class="w-24 text-sm border border-slate-200 rounded px-2 py-1">
-                </label>
-                <label class="flex flex-col gap-1">
-                  <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">BFV-nivå</span>
-                  <select x-model="flerar.bfvRebase"
-                          class="text-sm border border-slate-200 rounded px-2 py-1"
-                          title="Grunnlagsdatas bokførte verdier ligger over arkets avkastningsgrunnlag. Uten justering får kapitalbasen et sprang mellom basisåret og året etter.">
-                    <option value="both">Skaler BFV + investeringer</option>
-                    <option value="bfv">Skaler bare BFV</option>
-                    <option value="none">Ingen justering</option>
-                  </select>
-                </label>
-                <label class="flex items-center gap-2 pb-1.5">
-                  <input type="checkbox" x-model="flerar.recalibrate" class="rounded border-slate-300">
-                  <span class="text-xs text-slate-600"
-                        title="Rekalibrer hvert prognoseår: tillegg i norm fordeles på nytt og N100 beregnes av det framskrevne bransjeaggregatet.">
-                    Rekalibrer hvert år
-                  </span>
-                </label>
-                <p x-show="flerar.diagnostics" class="text-[11px] text-slate-400 pb-1.5">
-                  <span x-text="flerar.diagnostics?.n_companies"></span> selskaper ·
-                  rentejustering <span x-text="flerar.diagnostics?.rente_delta_pp"></span> pp ·
-                  KILE-faktor <span x-text="flerar.diagnostics?.kile_kpi_factor"></span>
-                </p>
-              </div>
-
-              <!-- Årsfaner -->
-              <div x-show="flerar.years.length" class="flex flex-wrap items-center gap-1 px-4 py-2 border-b border-slate-100">
-                <template x-for="y in flerar.years" :key="y">
-                  <button @click="flerar.activeYear = y"
-                          :class="flerar.activeYear === y ? 'btn-xs bg-brand-100 text-brand-700' : 'btn-xs'"
-                          x-text="y"></button>
-                </template>
-                <button @click="flerar.expanded = !flerar.expanded"
-                        :class="flerar.expanded ? 'btn-xs bg-brand-100 text-brand-700 ml-auto' : 'btn-xs ml-auto'"
-                        x-text="flerar.expanded ? '⊟ Kompakt' : '⊞ Utvid'"></button>
-                <button @click="downloadCsv(flerarRows, 'flerarsark_' + flerar.activeYear)" class="btn-xs">↓ CSV</button>
-              </div>
-
-              <!-- Årsark -->
-              <div x-show="flerar.years.length" class="overflow-x-auto max-h-[420px] overflow-y-auto">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <template x-for="col in flerarColumns" :key="col">
-                        <th x-text="col"></th>
-                      </template>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="(row, ri) in flerarRows" :key="ri">
-                      <tr>
-                        <template x-for="col in flerarColumns" :key="col">
-                          <td x-text="fmtCell(row[col])"></td>
-                        </template>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Bransjetotaler -->
-              <div x-show="flerar.summary.length" class="border-t border-slate-100">
-                <div class="flex items-center justify-between px-4 py-2">
-                  <span class="text-xs font-semibold text-slate-500">Bransjetotaler</span>
-                  <button @click="downloadCsv(flerar.summary, 'flerarsark_sammendrag')" class="btn-xs">↓ CSV</button>
-                </div>
-                <div class="overflow-x-auto max-h-[320px] overflow-y-auto">
-                  <table class="data-table">
-                    <thead>
-                      <tr>
-                        <th>Parameter</th>
-                        <th>Enhet</th>
-                        <template x-for="y in flerar.years" :key="y"><th x-text="y"></th></template>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="(row, ri) in flerar.summary" :key="ri">
-                        <tr>
-                          <td x-text="row['Parameter']"></td>
-                          <td x-text="row['Enhet']"></td>
-                          <template x-for="y in flerar.years" :key="y">
-                            <td x-text="fmtCell(row[String(y)])"></td>
-                          </template>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div x-show="!flerar.years.length && !flerar.loading" class="px-4 py-6">
-                <p class="text-slate-400 text-sm">Klikk «Bygg flerårsark» for å framskrive arket.</p>
-              </div>
-            </div>
-
             <!-- Empty state -->
             <div x-show="!irTable.length && !loading" class="empty-state">
               <p class="text-slate-400 text-sm">Kjør modellen for å se resultater.</p>
@@ -711,7 +592,7 @@
 
 
 
-      <!-- ══════════ TAB 2: PROGNOSEBYGGER ══════════ -->
+      <!-- ══════════ TAB 2: PROGNOSE ══════════ -->
       <section x-show="tab === 'prognose'" x-cloak>
 
         <div class="grid grid-cols-[260px_1fr] gap-6 min-w-0">

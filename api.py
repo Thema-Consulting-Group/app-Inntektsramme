@@ -906,7 +906,7 @@ async def run_pipeline():
 def get_companies(run_name: str | None = Query(default=None)):
     paths = _latest_run_paths(run_name)
     if not paths:
-        raise HTTPException(404, "Ingen resultater funnet. Kjør RME Modell først.")
+        raise HTTPException(404, "Ingen resultater funnet. Kjør Dagens RME modell først.")
     _, ld_path, _ = paths
     try:
         df = pd.read_excel(ld_path, sheet_name="Resultater_LD")
@@ -1251,95 +1251,6 @@ def get_analyse_fusjon(
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
-
-
-# ---------------------------------------------------------------------------
-# /api/flerarsark  — inntektsrammearket framskrevet, ett ark per år
-# ---------------------------------------------------------------------------
-
-def _build_flerarsark(
-    run_name: str | None,
-    recalibrate: bool,
-    bfv_rebase: str,
-    align_basis: bool,
-    base_year_from_ark: bool,
-    aar_til: int | None,
-):
-    from flerarsark import DEFAULT_YEARS, build_flerarsark  # noqa: PLC0415
-
-    if bfv_rebase not in ("none", "bfv", "both"):
-        raise HTTPException(400, "bfv_rebase må være 'none', 'bfv' eller 'both'.")
-
-    years = DEFAULT_YEARS
-    if aar_til is not None:
-        years = [y for y in DEFAULT_YEARS if y <= aar_til]
-        if not years:
-            raise HTTPException(400, f"aar_til må være minst {DEFAULT_YEARS[0]}.")
-
-    return build_flerarsark(
-        run_name=run_name,
-        recalibrate=recalibrate,
-        bfv_rebase=bfv_rebase,
-        align_basis=align_basis,
-        base_year_from_ark=base_year_from_ark,
-        years=years,
-    )
-
-
-@app.get("/api/flerarsark")
-def get_flerarsark(
-    run_name: str | None = Query(default=None),
-    recalibrate: bool = Query(default=True),
-    bfv_rebase: str = Query(default="both"),
-    align_basis: bool = Query(default=True),
-    base_year_from_ark: bool = Query(default=True),
-    aar_til: int | None = Query(default=None),
-):
-    """Framskriv inntektsrammearket for alle selskaper — ett ark per år."""
-    try:
-        ark = _build_flerarsark(
-            run_name, recalibrate, bfv_rebase, align_basis, base_year_from_ark, aar_til
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
-    return {
-        "years": ark.years,
-        "summary": _df_to_records(ark.summary),
-        "sheets": {str(y): _df_to_records(ark.sheets[y]) for y in ark.years},
-        "columns": list(ark.sheets[ark.years[0]].columns),
-        "diagnostics": _clean(ark.diagnostics),
-    }
-
-
-@app.get("/api/flerarsark/excel")
-def download_flerarsark(
-    run_name: str | None = Query(default=None),
-    recalibrate: bool = Query(default=True),
-    bfv_rebase: str = Query(default="both"),
-    align_basis: bool = Query(default=True),
-    base_year_from_ark: bool = Query(default=True),
-    aar_til: int | None = Query(default=None),
-):
-    """Last ned flerårsarket som Excel — Sammendrag + ett ark per år."""
-    try:
-        ark = _build_flerarsark(
-            run_name, recalibrate, bfv_rebase, align_basis, base_year_from_ark, aar_til
-        )
-        data = ark.to_bytes()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
-    name = f"Inntektsrammeark {ark.years[0]}-{ark.years[-1]}.xlsx"
-    return StreamingResponse(
-        io.BytesIO(data),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{name}"'},
-    )
 
 
 @app.get("/api/download-run")

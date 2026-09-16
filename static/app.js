@@ -130,8 +130,8 @@ function dashboard() {
     /* ── nav ─────────────────────────────── */
     tab: 'rme',
     navItems: [
-      { id: 'rme',      label: 'RME Modell',            icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>' },
-      { id: 'prognose', label: 'Prognosebygger',         icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>' },
+      { id: 'rme',      label: 'Dagens RME modell',     icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>' },
+      { id: 'prognose', label: 'Prognose',              icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>' },
       { id: 'kostnader',label: 'Kostnader',              icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>' },
       { id: 'analyse',  label: 'Analyse',                icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 6a1 1 0 011-1h.5a1 1 0 011 1v4.5a1 1 0 01-1 1H9a1 1 0 01-1-1V6zm4.5 3.5a1 1 0 011 1V14a1 1 0 01-1 1H12a1 1 0 01-1-1v-3.5a1 1 0 011-1h.5z" clip-rule="evenodd"/></svg>' },
       { id: 'frontier', label: 'Frontselskapsanalyse',   icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>' },
@@ -186,22 +186,6 @@ function dashboard() {
         // whole per-year series comes down with the response.
         noekkeltall_aar: null,
       },
-    },
-
-    // Flerårsark — inntektsrammearket framskrevet, ett ark per år
-    flerar: {
-      loading:     false,
-      years:       [],
-      activeYear:  null,
-      sheets:      {},
-      columns:     [],
-      summary:     [],
-      diagnostics: null,
-      expanded:    false,
-      // forutsetninger
-      aarTil:      2035,
-      recalibrate: true,
-      bfvRebase:   'both',
     },
 
     /* ── Grunnlagsdata upload ────────────── */
@@ -1046,57 +1030,6 @@ function dashboard() {
       }
     },
 
-    // ─── Flerårsark ──────────────────────────
-
-    _flerarQs() {
-      const f = this.flerar;
-      const p = new URLSearchParams();
-      if (this.selectedRun) p.set('run_name', this.selectedRun);
-      p.set('recalibrate', f.recalibrate ? 'true' : 'false');
-      p.set('bfv_rebase', f.bfvRebase);
-      p.set('aar_til', String(f.aarTil));
-      return `?${p.toString()}`;
-    },
-
-    async buildFlerarsark() {
-      const f = this.flerar;
-      f.loading = true;
-      this.globalError = '';
-      try {
-        const data = await this.api('GET', `/api/flerarsark${this._flerarQs()}`);
-        f.years       = data.years ?? [];
-        f.sheets      = data.sheets ?? {};
-        f.columns     = data.columns ?? [];
-        f.summary     = data.summary ?? [];
-        f.diagnostics = data.diagnostics ?? null;
-        f.activeYear  = f.years.length ? f.years[0] : null;
-        this.showToast(`Flerårsark bygget – ${f.years.length} år`);
-      } catch (e) {
-        this.globalError = e.message;
-      } finally {
-        f.loading = false;
-      }
-    },
-
-    get flerarRows() {
-      const f = this.flerar;
-      if (f.activeYear === null) return [];
-      return f.sheets[String(f.activeYear)] ?? [];
-    },
-
-    get flerarColumns() {
-      const f = this.flerar;
-      if (f.expanded) return f.columns;
-      const compact = ['Selskap', 'År', 'Kostnadsgrunnlag', 'K* etter kalibrering',
-                       'Inntektsramme etter kalibrering', 'AVS', 'BFV',
-                       'AKG (inkl 1 % arbeids-kapital)', 'Kraftpris kr/MWh'];
-      return f.columns.filter(c => compact.includes(c));
-    },
-
-    downloadFlerarsark() {
-      window.location.href = `/api/flerarsark/excel${this._flerarQs()}`;
-    },
-
     // ─── Tab 1 ───────────────────────────────
 
     async runPipeline() {
@@ -1204,6 +1137,14 @@ function dashboard() {
         this.irMeta    = data.meta;
         this.irTable   = data.table ?? [];
         this.irColumns = this.irTable.length ? Object.keys(this.irTable[0]) : [];
+        // Default ordering: largest revenue cap on top. The column carries the
+        // base year in its name ("inntektsramme 2026"), so match on the prefix
+        // rather than the literal — the year moves with the model run.
+        const irCol = this.irColumns.find(c => c.toLowerCase().startsWith('inntektsramme'));
+        if (irCol) {
+          this._sortState = { ...(this._sortState || {}), [irCol]: 'asc' };
+          this.sortTable('irTable', irCol);   // flips to desc
+        }
         this.showToast('Inntektsramme oppdatert');
       } catch (e) {
         // "No results yet" is expected on a fresh deploy — don't show as a red error

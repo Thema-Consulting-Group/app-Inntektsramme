@@ -33,7 +33,7 @@ Når containeren er klar, åpne:
 
 Appen er delt i tre steg – naviger med knappene øverst.
 
-### Steg 1 – RME Modell
+### Steg 1 – Dagens RME modell
 Klikk **Kjør RME Modell** for å kjøre modellen. Resultater lagres automatisk i `Results/`.
 Når kjøringen er ferdig kan du laste ned tabellen som CSV eller Excel.
 
@@ -105,27 +105,7 @@ Laster du opp grunnlagsdata selv, sjekkes filen ved opplasting: områdepriser m�
 innenfor `forutsetninger.omradepriser`, rammevilkårsvariabler innenfor bransjens
 intervall, og selskaper som er endret i bare noen av årene blir flagget.
 
-#### Flerårsark
-Under resultattabellen ligger panelet **Flerårsark**, som framskriver inntektsrammearket
-for alle selskaper og gir **ett ark per år**. Klikk **Bygg flerårsark**, og last ned med
-**⬇ Excel** (ett regneark med `Sammendrag` + ett ark per år).
-
-Basisåret (2026) er hentet direkte fra RME-modellen og er identisk med tabellen over.
-Årene etter framskrives med samme forutsetninger som Steg 2 (KPI, KPI lønn, NVE-rente,
-kraftpris, investeringer).
-
-Tre forutsetninger kan styres:
-
-| Valg | Betydning |
-|---|---|
-| **Til år** | Siste prognoseår (2026–2035). |
-| **BFV-nivå** | Bokførte verdier i grunnlagsdata ligger over arkets avkastningsgrunnlag (~27 % på lokalt nett, ~8 % på regionalt). Uten justering får kapitalbasen et sprang på ett år mellom basisåret og året etter. Standard *Skaler BFV + investeringer* beholder observert investeringstakt; *Skaler bare BFV* gir høyere vekst på en mindre base; *Ingen justering* er prognosens uendrede oppførsel. |
-| **Rekalibrer hvert år** | Fordeler tillegg i norm på nytt og beregner kalibreringskonstanten N100 av det framskrevne bransjeaggregatet for hvert år, slik at hvert årsark er internt konsistent. Slås av for å beholde basisårets konstanter fra `config.yaml`. |
-
-Renteavviket N93 kan ikke utledes av prognosen (det er avviket mellom referanserente og
-faktiske rentekostnader) og holdes derfor konstant på verdien i `config.yaml`.
-
-### Steg 2 – Prognosebygger
+### Steg 2 – Prognose
 Velg selskap, juster forutsetninger og se prognosen.
 Lagre endringer med **Lagre forutsetninger**.
 
@@ -140,7 +120,7 @@ Panelet gjenskaper KPI-oppsettet fra inntektsrammeanalysen (jf. *Inntektsrammean
 | **Effektivitet per trinn** | Trinn 1 = DEA (`eff.s1.cb`), trinn 2 = rammevilkår (`eff.s2.cb`), trinn 3 = oppkalibrering, samt vektet trinn 3 |
 | **Frontselskap per nettnivå** | Referansevektene `ld_ncs_*` / `rd_ncs_*` fra DEA-kjøringen |
 
-Velg selskap og år øverst. Årsspennet er det samme som i flerårsarket.
+Velg selskap og år øverst. Årsspennet følger prognosens framskrivning.
 
 Tre forhold er verdt å merke seg, og panelet viser dem som merknader:
 
