@@ -27,3 +27,9 @@ rme_table_forecast.xlsx
 
 ir_tabell (26).csv
 Fusjonscase_TS+Tn+Elvia.xlsx
+
+# Overstyringsfiler skrevet av appen (opplasting, redigering eller sonepriser).
+# De er brukerens egne tall for én kjøring, ikke kildedata. Sonekartet utledes
+# av standardfilen og bygges på nytt hvis det mangler.
+/Data/BaseData/*_override.xlsx
+/Data/BaseData/kraftpris_soner_map.csv

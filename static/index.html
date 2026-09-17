@@ -193,17 +193,24 @@
             <div class="border-t border-slate-100 mx-3 mt-1"></div>
             <div class="px-3 py-2">
               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-2">Verdijusteringer (CSV)</p>
-              <!-- Generate button -->
-              <button @click="generateGrunnlagsdata()"
-                      :disabled="generatingGrunn"
-                      class="btn-secondary w-full text-xs mb-1.5 flex items-center justify-center gap-1.5"
-                      title="Last ned grunnlagsdata fra base-data (uten å kjøre full modell)">
-                <span x-show="!generatingGrunn">⬇ Generer grunnlagsdata</span>
-                <span x-show="generatingGrunn" class="flex items-center gap-1.5">
-                  <span class="w-3 h-3 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></span>
-                  Genererer…
-                </span>
-              </button>
+              <!-- Opens the key variables on the right, above the results
+                   table. Generates first when no grunnlagsdata is loaded:
+                   generating it is never the goal in itself. -->
+              <div class="flex gap-1.5 mb-1.5">
+                <button @click="apneGrunnEdit()"
+                        :disabled="generatingGrunn || grunnEdit.loading"
+                        class="btn-secondary flex-1 text-xs flex items-center justify-center gap-1.5"
+                        title="Rediger kostnadene og oppgavene direkte i appen">
+                  <span x-show="!generatingGrunn && !grunnEdit.loading">✎ Rediger grunnlagsdata</span>
+                  <span x-show="generatingGrunn || grunnEdit.loading" class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></span>
+                    <span x-text="generatingGrunn ? 'Genererer…' : 'Laster…'"></span>
+                  </span>
+                </button>
+                <button @click="downloadGrunnlagsdata()"
+                        class="btn-secondary text-xs px-2 shrink-0"
+                        title="Last ned hele filen som CSV — med en rad med fulle variabelnavn under overskriftene">⬇</button>
+              </div>
               <label
                 class="group flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer transition-colors"
                 :class="grunnlag.active
@@ -283,7 +290,7 @@
 
                 <template x-if="!fusjon.loading && !fusjon.selskaper.length">
                   <p class="text-[10px] text-slate-400 px-2">
-                    Ingen grunnlagsdata tilgjengelig. Klikk «Generer grunnlagsdata» først.
+                    Ingen grunnlagsdata tilgjengelig. Klikk «Rediger grunnlagsdata» først.
                   </p>
                 </template>
 
@@ -366,6 +373,77 @@
                         </p>
                       </div>
                     </template>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Kraftpris per prissone -->
+            <div class="border-t border-slate-100 mx-3 mt-1"></div>
+            <div class="px-3 py-2">
+              <button @click="toggleSoner()"
+                      class="w-full flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-50 transition-colors">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kraftpris per prissone</span>
+                <span class="text-slate-400 text-xs" x-text="soner.open ? '▾' : '▸'"></span>
+              </button>
+
+              <div x-show="soner.open" x-transition class="mt-1.5 space-y-1.5">
+                <template x-if="soner.loading">
+                  <p class="text-[10px] text-slate-400 px-2">Laster priser …</p>
+                </template>
+
+                <template x-if="soner.error">
+                  <p class="text-[10px] text-red-600 px-2 leading-snug" x-text="soner.error"></p>
+                </template>
+
+                <template x-if="!soner.loading && soner.rader.length">
+                  <div class="space-y-1.5">
+                    <p class="text-[10px] text-slate-400 px-2 leading-snug">
+                      NOK/MWh. Prisen skrives til <span class="font-mono">pnl.rc</span> for alle
+                      selskapene i sonen.
+                    </p>
+                    <div class="px-2 space-y-0.5">
+                      <template x-for="s in soner.rader" :key="s.sone">
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs font-medium text-slate-700 w-9 shrink-0" x-text="s.sone"></span>
+                          <input type="number" step="0.1" min="0"
+                                 :value="soner.utkast[s.sone]"
+                                 @input="soner.utkast[s.sone] = $event.target.value === '' ? '' : +$event.target.value"
+                                 class="w-20 text-xs text-right border border-slate-200 rounded px-1.5 py-1
+                                        focus:ring-1 focus:ring-brand-500 focus:border-brand-500"
+                                 :class="Number(soner.utkast[s.sone]) !== Number(s.pris) ? 'bg-amber-50 border-amber-300' : ''">
+                          <span class="text-[10px] text-slate-400 shrink-0"
+                                x-text="s.n_selskaper + ' selsk.'"></span>
+                          <span x-show="s.blandet" class="text-[10px] text-amber-600 shrink-0"
+                                title="Selskapene i sonen har ikke samme pris i den aktive filen — feltet viser basisprisen.">blandet</span>
+                        </div>
+                      </template>
+                    </div>
+                    <!-- Companies spanning several zones have a volume-weighted
+                         price that cannot be traced back to one zone, so they
+                         are left alone. That belongs on screen, not only in the
+                         documentation. -->
+                    <p x-show="soner.utenSone" class="text-[10px] text-slate-400 px-2 leading-snug"
+                       x-text="soner.utenSone + ' selskap har en pris mellom to soner (flere prisområder) og beholder prisen sin.'"></p>
+                    <div class="px-2 flex gap-1.5">
+                      <button @click="lagreSoner()"
+                              :disabled="!sonerEndret() || soner.saving"
+                              class="btn-secondary flex-1 text-xs flex items-center justify-center gap-1.5">
+                        <span x-show="!soner.saving">Bruk priser</span>
+                        <span x-show="soner.saving" class="flex items-center gap-1.5">
+                          <span class="w-3 h-3 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></span>
+                          Lagrer …
+                        </span>
+                      </button>
+                      <button x-show="soner.overstyrt" @click="tilbakestillSoner()"
+                              :disabled="soner.saving"
+                              class="btn-secondary text-xs px-2 shrink-0"
+                              title="Fjern overstyringen og bruk standardprisene igjen">↺</button>
+                    </div>
+                    <p class="text-[10px] px-2 leading-snug"
+                       :class="soner.overstyrt ? 'text-amber-600 font-medium' : 'text-slate-400'"
+                       x-text="(soner.overstyrt ? 'Overstyrt: ' : 'Standard: ') + soner.filnavn
+                         + (sonerEndret() ? ' · ulagrede endringer' : '')"></p>
                   </div>
                 </template>
               </div>
@@ -476,6 +554,295 @@
               </div>
             </div>
 
+            <!-- ── Analysis for one company and one year ──
+                 Came here from the old Analyse tab. The charts sit above the
+                 table: the KPIs answer "how did this company do", the table
+                 answers "what does the industry look like", and that is the
+                 order the questions get asked in. -->
+            <div x-show="irTable.length > 0" class="card p-4">
+              <div class="flex flex-wrap items-end gap-4">
+                <div class="flex-1 min-w-[220px]">
+                  <label class="label">Selskap</label>
+                  <select x-model="anal.orgn" class="input" @change="loadAnalyse()">
+                    <option value="">— velg selskap —</option>
+                    <template x-for="c in progCompanies" :key="c.orgn">
+                      <option :value="c.orgn" x-text="c.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <div>
+                  <label class="label">År</label>
+                  <select x-model.number="anal.aar" class="input" @change="loadAnalyse()">
+                    <template x-for="y in (anal.data?.aar_tilgjengelig ?? [2026,2027,2028,2029,2030,2031,2032,2033,2034,2035])" :key="y">
+                      <option :value="y" x-text="y"></option>
+                    </template>
+                  </select>
+                </div>
+                <button @click="loadAnalyse()" :disabled="!anal.orgn || anal.loading"
+                        class="btn-secondary" x-text="anal.loading ? 'Laster…' : '⟳ Oppdater'"></button>
+              </div>
+              <!-- The picker above is gated on progCompanies, so an empty list
+                   has to explain itself — otherwise the button just looks
+                   broken. -->
+              <div x-show="!progCompanies.length" class="mt-2 flex items-start gap-2">
+                <p class="text-[11px]"
+                   :class="progCompaniesError ? 'text-red-600' : 'text-slate-400'"
+                   x-text="progCompaniesError || 'Ingen selskaper lastet — velg en kjøring i menyen øverst.'"></p>
+                <button @click="retryProgCompanies()"
+                        class="text-[11px] text-brand-600 hover:underline shrink-0">Prøv igjen</button>
+              </div>
+              <p x-show="progCompanies.length && !anal.orgn" class="text-[11px] text-slate-400 mt-2">
+                Velg selskap for å se inntektsramme, avkastning, effektivitet per trinn og frontselskap.
+              </p>
+            </div>
+            <!-- ── Ettårsvisning ── -->
+            <template x-if="anal.data">
+              <div>
+                <!-- Overskrift -->
+                <h2 class="text-lg font-semibold mb-4">
+                  <span x-text="anal.data.selskap"></span> – inntektsramme
+                  <span x-text="anal.data.aar"></span>
+                </h2>
+
+                <!-- Rad 1: de to hero-tallene -->
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                  <!-- Inntektsramme -->
+                  <div class="card p-0 overflow-hidden">
+                    <div class="px-4 py-2 bg-[#285064]">
+                      <span class="text-xs font-semibold text-white italic">Inntektsramme etter bransjeoverheng</span>
+                    </div>
+                    <div class="flex items-center gap-5 p-5">
+                      <div class="shrink-0 w-28 h-28 rounded-full bg-[#285064] flex flex-col items-center justify-center">
+                        <span class="text-xl font-bold text-white leading-tight"
+                              x-text="anal.data.ir.mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0})"></span>
+                        <span class="text-[10px] font-semibold text-white/80">MNOK</span>
+                      </div>
+                      <div>
+                        <p class="text-base font-bold italic text-slate-700"
+                           x-text="fmtSigned(anal.data.ir.endring_mnok, 0, ' MNOK')"></p>
+                        <p class="text-xs text-slate-400"
+                           x-text="anal.data.forrige_aar ? 'endring fra IR' + String(anal.data.forrige_aar).slice(2) : 'ingen endringstall'"></p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Avkastning -->
+                  <div class="card p-0 overflow-hidden">
+                    <div class="px-4 py-2 bg-[#285064]">
+                      <span class="text-xs font-semibold text-white italic">Avkastning på nettkapital</span>
+                    </div>
+                    <div class="flex items-center gap-5 p-5">
+                      <div class="shrink-0 w-28 h-28 rounded-full bg-[#285064] flex flex-col items-center justify-center">
+                        <span class="text-xl font-bold text-white leading-tight"
+                              x-text="anal.data.avkastning.pct.toLocaleString('nb-NO', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + ' %'"></span>
+                        <span class="text-[10px] font-semibold text-white/80"
+                              x-text="'(' + anal.data.avkastning.mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK)'"></span>
+                      </div>
+                      <div>
+                        <p class="text-base font-bold italic text-slate-700"
+                           x-text="fmtSigned(anal.data.avkastning.endring_pp, 1, ' pp')"></p>
+                        <p class="text-xs text-slate-400"
+                           x-text="anal.data.forrige_aar ? 'endring fra IR' + String(anal.data.forrige_aar).slice(2) : 'ingen endringstall'"></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Rad 2: effektivitet per trinn + frontselskap -->
+                <div class="grid grid-cols-2 gap-4">
+
+                  <!-- Effektivitet per trinn -->
+                  <div class="card p-0 overflow-hidden">
+                    <div class="px-4 py-2 bg-[#285064]">
+                      <span class="text-xs font-semibold text-white italic">Effektivitet per trinn</span>
+                    </div>
+                    <div class="p-4">
+                      <!-- Kolonneoverskrift for endringskolonnen, som i analysen -->
+                      <div class="text-[10px] font-semibold text-slate-500 text-right mb-1 pr-16"
+                           x-text="anal.data.forrige_aar ? 'Endring fra IR' + String(anal.data.forrige_aar).slice(2) : 'Endring'"></div>
+
+                      <!-- Én boks per nettnivå, tonet i nivåets fargefamilie -->
+                      <template x-for="(g, gi) in analTrinnGrupper" :key="g.nivaa + gi">
+                        <div class="rounded border mb-1.5"
+                             :style="'background:' + (anal.data.nivaastil[g.nivaa]?.bakgrunn ?? '#ffffff') + '; border-color:' + (anal.data.nivaastil[g.nivaa]?.kant ?? '#e2e8f0')">
+                          <table class="w-full text-xs table-fixed">
+                            <tbody>
+                              <template x-for="(r, ri) in g.rader" :key="r.nivaa + r.trinn">
+                                <tr>
+                                  <td class="py-1.5 pl-3 pr-2 whitespace-nowrap text-slate-700 w-[38%] border-r"
+                                      :style="'border-color:' + (anal.data.nivaastil[g.nivaa]?.kant ?? '#e2e8f0')"
+                                      x-text="r.label"></td>
+                                  <!-- 4px avrundet stolpeende, 2px luft mellom stolpene -->
+                                  <td class="py-1.5 pl-2 w-[30%]">
+                                    <div class="h-[15px] my-[2px] rounded-r"
+                                         :style="'width:' + analBarPct(r.verdi_pct) + '%; background:' + r.farge"
+                                         :title="r.label + ': ' + r.verdi_pct.toFixed(1) + ' %'"></div>
+                                  </td>
+                                  <td class="py-1.5 pl-2 font-semibold text-slate-700 whitespace-nowrap w-[15%]"
+                                      x-text="r.verdi_pct.toLocaleString('nb-NO', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + ' %'"></td>
+                                  <td class="py-1.5 px-1 text-right text-slate-500 whitespace-nowrap w-[17%]"
+                                      x-text="r.basisaar ? 'basisår' : fmtSigned(r.endring_pp, 1, ' pp')"></td>
+                                  <td class="py-1.5 pr-3 pl-2 text-right font-bold italic text-slate-600 whitespace-nowrap w-16"
+                                      x-text="ri === 0 ? g.nivaa : ''"></td>
+                                </tr>
+                              </template>
+                            </tbody>
+                          </table>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- Frontselskap per nettnivå -->
+                  <div class="card p-0 overflow-hidden">
+                    <div class="px-4 py-2 bg-[#285064]">
+                      <span class="text-xs font-semibold text-white italic">Frontselskap per nettnivå</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 p-2">
+                      <div>
+                        <div id="analyse-front-dnett"></div>
+                        <div x-show="!anal.data.front['D-nett'].length"
+                             class="text-center text-xs text-slate-400 py-8">Ikke i DEA-utvalget</div>
+                      </div>
+                      <div>
+                        <div id="analyse-front-rnett"></div>
+                        <div x-show="!anal.data.front['R-nett'].length"
+                             class="text-center text-xs text-slate-400 py-8">Ikke i DEA-utvalget</div>
+                      </div>
+                    </div>
+                    <!-- Tabellvisning: identitet er aldri bare farge -->
+                    <div class="px-4 pb-4">
+                      <table class="w-full text-xs">
+                        <tbody>
+                          <template x-for="niv in ['D-nett','R-nett']" :key="niv">
+                            <template x-for="(r, i) in anal.data.front[niv]" :key="niv + r.navn">
+                              <tr>
+                                <td class="py-1 w-4">
+                                  <span class="inline-block w-2.5 h-2.5 rounded-sm"
+                                        :style="'background:' + r.farge"></span>
+                                </td>
+                                <td class="py-1 text-slate-400 w-14" x-text="i === 0 ? niv : ''"></td>
+                                <td class="py-1 text-slate-600" x-text="r.navn"></td>
+                                <td class="py-1 text-right font-semibold text-slate-700 whitespace-nowrap"
+                                    x-text="r.andel_pct.toLocaleString('nb-NO', {maximumFractionDigits: 1}) + ' %'"></td>
+                              </tr>
+                            </template>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Merknader -->
+                <div x-show="anal.data.merknader.length" class="card p-4 mt-4">
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Merknader</p>
+                  <ul class="space-y-1">
+                    <template x-for="(m, i) in anal.data.merknader" :key="i">
+                      <li class="text-[11px] text-slate-500 leading-relaxed">• <span x-text="m"></span></li>
+                    </template>
+                  </ul>
+                </div>
+              </div>
+            </template>
+
+            <!-- ── Key variables in grunnlagsdata ──
+                 Replaces the Kostnader tab and the old «Rediger CSV-filer».
+                 Only the costs and tasks the model measures on, with full names
+                 above the R abbreviations; the rest is edited in the file. -->
+            <div x-show="grunnEdit.open" x-cloak class="card p-0 overflow-hidden">
+              <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
+                <h3 class="text-sm font-semibold">Grunnlagsdata – nøkkelvariabler</h3>
+                <div class="flex rounded overflow-hidden border border-slate-200">
+                  <template x-for="(g, gi) in Object.keys(colGroups)" :key="g">
+                    <button @click="grunnEdit.gruppe = g"
+                            class="px-3 py-1 text-xs font-semibold"
+                            :class="(grunnEdit.gruppe === g ? 'bg-brand-100 text-brand-700' : 'bg-white text-slate-500')
+                                    + (gi ? ' border-l border-slate-200' : '')"
+                            x-text="groupNames[g] ?? g"></button>
+                  </template>
+                </div>
+                <select x-model="grunnEdit.aar" class="input w-auto text-xs">
+                  <option value="">alle år</option>
+                  <template x-for="y in grunnEditAar()" :key="y">
+                    <option :value="y" x-text="y"></option>
+                  </template>
+                </select>
+                <select x-model="grunnEdit.orgn" class="input w-auto text-xs max-w-[220px]">
+                  <option value="">alle selskaper</option>
+                  <template x-for="s in grunnEditSelskaper()" :key="s.orgn">
+                    <option :value="s.orgn" x-text="s.comp"></option>
+                  </template>
+                </select>
+                <div class="ml-auto flex items-center gap-2">
+                  <button @click="lastGrunnEdit()" :disabled="grunnEdit.loading"
+                          class="btn-xs" title="Les filen på nytt og forkast ulagrede endringer">↺</button>
+                  <button @click="lagreGrunnEdit()"
+                          :disabled="grunnEdit.saving || !grunnEdit.dirty"
+                          class="btn-primary text-xs"
+                          :class="grunnEdit.dirty ? '' : 'opacity-50 cursor-not-allowed'">
+                    <span x-show="!grunnEdit.saving">💾 Lagre</span>
+                    <span x-show="grunnEdit.saving">Lagrer…</span>
+                  </button>
+                  <button @click="grunnEdit.open = false" class="text-slate-300 hover:text-slate-600 text-sm leading-none"
+                          title="Lukk">✕</button>
+                </div>
+              </div>
+
+              <p x-show="grunnEdit.error" class="px-4 py-2 text-[11px] text-red-600" x-text="grunnEdit.error"></p>
+              <p x-show="!grunnEdit.error" class="px-4 py-2 text-[11px] text-slate-400"
+                 x-text="grunnEdit.loading
+                   ? 'Laster grunnlagsdata …'
+                   : grunnEditRader().length + ' rad(er) vist av ' + grunnEdit.rows.length
+                     + (grunnEdit.dirty ? ' · ulagrede endringer' : ' · ingen endringer')
+                     + ' · lagring skriver bare filen, klikk Start for å kjøre modellen'"></p>
+
+              <div x-show="grunnEditRader().length" class="overflow-x-auto max-h-[520px] overflow-y-auto">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <template x-for="col in grunnEditKolonner()" :key="col">
+                        <th :title="col">
+                          <span x-text="colLabel(col)"></span>
+                          <span class="tech-name" x-text="col"></span>
+                        </th>
+                      </template>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="row in grunnEditRader()" :key="row.orgn + '_' + row.y">
+                      <tr>
+                        <template x-for="col in grunnEditKolonner()" :key="col">
+                          <td :class="idCols.includes(col) ? '' : 'csv-cell'">
+                            <!-- The identifiers are the key rows are written
+                                 back on, so they show but do not edit. -->
+                            <template x-if="idCols.includes(col)">
+                              <span x-text="fmtCell(row[col])"></span>
+                            </template>
+                            <template x-if="!idCols.includes(col)">
+                              <input type="text"
+                                     :value="grunnEdit.focusCell === row.orgn + '_' + row.y + '_' + col
+                                       ? (row[col] ?? '')
+                                       : (typeof row[col] === 'number'
+                                           ? row[col].toLocaleString('no-NO', {maximumFractionDigits: 4})
+                                           : (row[col] ?? ''))"
+                                     @focus="grunnEdit.focusCell = row.orgn + '_' + row.y + '_' + col; $event.target.value = row[col] ?? ''"
+                                     @blur="grunnEdit.focusCell = ''"
+                                     @change="row[col] = $event.target.value === '' ? null : isNaN(+$event.target.value) ? $event.target.value : +$event.target.value; grunnEdit.dirty = true" />
+                            </template>
+                          </td>
+                        </template>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <p x-show="!grunnEdit.loading && !grunnEditRader().length && !grunnEdit.error"
+                 class="px-4 pb-4 text-xs text-slate-400">
+                Ingen rader i utvalget. Velg et annet år eller selskap.
+              </p>
+            </div>
+
             <!-- Table -->
             <div x-show="irTable.length > 0" class="card overflow-hidden p-0">
               <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
@@ -491,7 +858,7 @@
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <template x-for="col in (irExpanded ? irColumns : irColumns.filter(c => ['Selskap','inntektsramme 2026','D&V-kostnader eks utredningskostnader','Årslønn-justerte D&V-kostnader eks utredningskostnader','AVS','BFV','AKG (inkl 1 % arbeids-kapital)','Kraftpris kr/MWh','Frontselskap D-nett','Frontselskap R-nett'].includes(c)))" :key="col">
+                      <template x-for="col in irVisteKolonner()" :key="col">
                         <th x-text="col" @click="sortTable('irTable', col)" class="cursor-pointer select-none"></th>
                       </template>
                     </tr>
@@ -499,7 +866,7 @@
                   <tbody>
                     <template x-for="(row, ri) in irTable" :key="ri">
                       <tr>
-                        <template x-for="col in (irExpanded ? irColumns : irColumns.filter(c => ['Selskap','inntektsramme 2026','D&V-kostnader eks utredningskostnader','Årslønn-justerte D&V-kostnader eks utredningskostnader','AVS','BFV','AKG (inkl 1 % arbeids-kapital)','Kraftpris kr/MWh','Frontselskap D-nett','Frontselskap R-nett'].includes(c)))" :key="col">
+                        <template x-for="col in irVisteKolonner()" :key="col">
                           <td x-text="fmtCell(row[col])"></td>
                         </template>
                       </tr>
@@ -512,78 +879,6 @@
             <!-- Empty state -->
             <div x-show="!irTable.length && !loading" class="empty-state">
               <p class="text-slate-400 text-sm">Kjør modellen for å se resultater.</p>
-            </div>
-
-            <!-- CSV editor -->
-            <div class="card p-4" x-init="loadRunCsvFiles()">
-              <div class="flex flex-wrap items-center gap-3 mb-3">
-                <h3 class="text-sm font-semibold flex-1">Rediger CSV-filer</h3>
-                <select x-model="csvEdit.file" class="input w-auto text-xs" @change="csvEdit.rows = []; csvEdit.dirty = false">
-                  <option value="" disabled>— velg fil —</option>
-                  <template x-for="f in csvEdit.availableFiles" :key="f.filename">
-                    <option :value="f.filename" x-text="f.filename"></option>
-                  </template>
-                </select>
-                <button @click="loadRunCsvFiles()" class="btn-secondary text-xs" title="Oppdater filliste">↺</button>
-                <button @click="loadRunCsv()" :disabled="csvEdit.loading || !csvEdit.file" class="btn-secondary text-xs">
-                  <span x-show="!csvEdit.loading">Last inn</span>
-                  <span x-show="csvEdit.loading">Laster…</span>
-                </button>
-                <button @click="saveRunCsv()"
-                        :disabled="csvEdit.saving || !csvEdit.dirty || !csvEdit.runName"
-                        class="btn-primary text-xs"
-                        :class="csvEdit.dirty ? '' : 'opacity-50 cursor-not-allowed'">
-                  <span x-show="!csvEdit.saving">💾 Lagre</span>
-                  <span x-show="csvEdit.saving">Lagrer…</span>
-                </button>
-              </div>
-              <!-- «Last inn» is gated on csvEdit.file, so an empty dropdown
-                   has to explain itself rather than just greying the button. -->
-              <p x-show="!csvEdit.availableFiles.length" class="text-[11px] mb-2"
-                 :class="csvEdit.filesError ? 'text-red-600' : 'text-slate-400'"
-                 x-text="csvEdit.filesError || 'Ingen filer i denne kjøringen — velg en annen kjøring, eller klikk ↺.'"></p>
-              <p x-show="csvEdit.runName" class="text-xs text-slate-400 mb-2"
-                 x-text="'Kjøring: ' + csvEdit.runName + (csvEdit.dirty ? ' · Ulagrede endringer' : ' · Ingen endringer')"></p>
-              <div x-show="csvEdit.rows.length" class="overflow-x-auto max-h-80 overflow-y-auto">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <template x-if="csvEdit.columns.includes('id')">
-                        <th>Selskap</th>
-                      </template>
-                      <template x-for="col in csvEdit.columns" :key="col">
-                        <th :title="col">
-                          <span x-text="csvColLabel(col)"></span>
-                          <span class="tech-name" x-text="col"></span>
-                        </th>
-                      </template>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="(row, ri) in csvEdit.rows" :key="ri">
-                      <tr>
-                        <template x-if="csvEdit.columns.includes('id')">
-                          <td x-text="csvCompanyName(row.id) ?? '—'"></td>
-                        </template>
-                        <template x-for="col in csvEdit.columns" :key="col">
-                          <td class="csv-cell">
-                            <input type="text"
-                                   :value="csvEdit.focusCell === ri + '_' + col
-                                     ? (csvEdit.rows[ri][col] ?? '')
-                                     : (typeof csvEdit.rows[ri][col] === 'number'
-                                         ? csvEdit.rows[ri][col].toLocaleString('no-NO', {maximumFractionDigits: 4})
-                                         : (csvEdit.rows[ri][col] ?? ''))"
-                                   @focus="csvEdit.focusCell = ri + '_' + col; $event.target.value = csvEdit.rows[ri][col] ?? ''"
-                                   @blur="csvEdit.focusCell = ''"
-                                   @change="csvEdit.rows[ri][col] = $event.target.value === '' ? null : isNaN(+$event.target.value) ? $event.target.value : +$event.target.value; csvEdit.dirty = true" />
-                          </td>
-                        </template>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
-              <p x-show="!csvEdit.rows.length" class="text-xs text-slate-400 mt-1">Velg fil og klikk <strong>Last inn</strong>.</p>
             </div>
 
           </div><!-- end right panel, min-w-0 prevents grid blowout -->
@@ -602,7 +897,7 @@
             <div class="card p-4 space-y-4">
               <div>
                 <label class="label">Selskap</label>
-                <select x-model="prog.orgn" class="input" @change="prog.result = null">
+                <select x-model="prog.orgn" class="input" @change="byttProgSelskap()">
                   <option value="">— velg selskap —</option>
                   <template x-for="c in progCompanies" :key="c.orgn">
                     <option :value="c.orgn" x-text="c.name"></option>
@@ -613,25 +908,41 @@
                 <div x-show="!progCompanies.length" class="mt-1 flex items-start gap-2">
                   <p class="text-[11px]"
                      :class="progCompaniesError ? 'text-red-600' : 'text-slate-400'"
-                     x-text="progCompaniesError || 'Ingen selskaper lastet — gå til Steg 1 og velg en kjøring først.'"></p>
+                     x-text="progCompaniesError || 'Ingen selskaper lastet — velg en kjøring i menyen øverst.'"></p>
                   <button @click="retryProgCompanies()"
                           class="text-[11px] text-brand-600 hover:underline shrink-0">Prøv igjen</button>
                 </div>
               </div>
 
-              <div>
+              <!-- Multi-year and merger came here from the old Analyse tab.
+                   Both project over the forecast period for the same company,
+                   so they share the picker above. -->
+              <div class="flex rounded overflow-hidden border border-slate-200">
+                <button @click="settProgVisning('prognose')" class="flex-1 px-2 py-1.5 text-xs font-semibold"
+                        :class="prog.visning === 'prognose' ? 'bg-brand-100 text-brand-700' : 'bg-white text-slate-500'">Prognose</button>
+                <button @click="settProgVisning('tidsserie')" class="flex-1 px-2 py-1.5 text-xs font-semibold border-l border-slate-200"
+                        :class="prog.visning === 'tidsserie' ? 'bg-brand-100 text-brand-700' : 'bg-white text-slate-500'">Flerår</button>
+                <button @click="settProgVisning('fusjon')" class="flex-1 px-2 py-1.5 text-xs font-semibold border-l border-slate-200"
+                        :class="prog.visning === 'fusjon' ? 'bg-brand-100 text-brand-700' : 'bg-white text-slate-500'">Fusjon</button>
+              </div>
+
+              <div x-show="prog.visning === 'prognose'">
                 <label class="label">Effektivitetsvekt (ρ)</label>
                 <input type="number" x-model.number="prog.rho" min="0" max="1" step="0.05" class="input" />
               </div>
 
-              <div>
+              <div x-show="prog.visning === 'prognose'">
                 <label class="label">Avskrivningssats (%)</label>
                 <input type="number" x-model.number="prog.avs" min="1" max="10" step="0.5" class="input" />
               </div>
 
-              <details class="group">
+              <!-- The crude merger adjustment the forecast has always had: a
+                   markup on costs, not a fresh DEA run. The Fusjon view above
+                   does it properly; this one stays because it acts inside the
+                   projection itself. -->
+              <details class="group" x-show="prog.visning === 'prognose'">
                 <summary class="cursor-pointer text-sm font-medium text-slate-600 list-none flex items-center justify-between">
-                  Fusjon
+                  Enkel fusjonsjustering
                   <span class="text-slate-400 group-open:rotate-180 transition-transform">▾</span>
                 </summary>
                 <div class="mt-3 space-y-2">
@@ -650,17 +961,26 @@
                 </div>
               </details>
 
-              <button @click="runPrognose()"
+              <button x-show="prog.visning === 'prognose'"
+                      @click="runPrognose()"
                       :disabled="!prog.orgn || loading"
                       class="btn-primary w-full">
                 Beregn prognose
               </button>
+              <button x-show="prog.visning === 'tidsserie'"
+                      @click="beregnFlerAar()"
+                      :disabled="!prog.orgn || anal.loading"
+                      class="btn-primary w-full"
+                      x-text="anal.loading ? 'Beregner …' : 'Beregn flerår'"></button>
+              <p x-show="prog.visning === 'fusjon'" class="text-[11px] text-slate-400">
+                Sett fusjonsforutsetningene til høyre og klikk «Beregn fusjon».
+              </p>
             </div>
           </div>
 
           <!-- Results -->
           <div class="space-y-4 min-w-0 overflow-hidden">
-            <template x-if="prog.result">
+            <template x-if="prog.visning === 'prognose' && prog.result">
               <div>
 
                 <!-- Summary metrics -->
@@ -695,7 +1015,7 @@
                 <!-- Full grunnlagsdata table -->
                 <details class="card p-0 overflow-hidden">
                   <summary class="px-4 py-3 cursor-pointer text-sm font-semibold border-b border-slate-100 select-none flex items-center justify-between">
-                    <span>Grunnlagsdata – full tabell</span>
+                    <span>Komplette resultater – variabler på radene, år på kolonnene</span>
                     <button x-show="prog.result.length" @click.stop="downloadCsv(prog.result, 'grunnlagsdata')" class="btn-xs">&#8595; CSV</button>
                   </summary>
                   <div class="overflow-x-auto max-h-96">
@@ -729,9 +1049,346 @@
               </div>
             </template>
 
-            <div x-show="!prog.result && !loading" class="empty-state">
+            <div x-show="prog.visning === 'prognose' && !prog.result && !loading" class="empty-state">
               <p class="text-slate-500 text-sm">Velg selskap og klikk <strong>Beregn prognose</strong>.</p>
             </div>
+
+            <!-- ── Tidsserievisning ── -->
+            <template x-if="prog.visning === 'tidsserie' && anal.ts">
+              <div>
+                <h2 class="text-lg font-semibold mb-4">
+                  <span x-text="anal.ts.selskap"></span> – utvikling
+                  <span x-text="anal.ts.aar[0] + '–' + anal.ts.aar[anal.ts.aar.length - 1]"></span>
+                </h2>
+
+                <div class="grid grid-cols-2 gap-4">
+
+                  <!-- 1. Effektivitet per nettnivå og vektet -->
+                  <div class="card p-0 overflow-hidden">
+                    <div class="px-4 py-2 bg-[#285064]">
+                      <span class="text-xs font-semibold text-white italic">Effektivitet per nettnivå og vektet</span>
+                      <span class="text-[11px] text-white/70">(prosent)</span>
+                    </div>
+                    <div class="p-3"><div id="analyse-ts-eff"></div></div>
+                  </div>
+
+                  <!-- 2. Inntektsramme, avkastning og investeringsnivå -->
+                  <div class="card p-0 overflow-hidden">
+                    <div class="px-4 py-2 bg-[#285064]">
+                      <span class="text-xs font-semibold text-white italic">Inntektsramme, avkastning og investeringsnivå</span>
+                    </div>
+                    <div class="p-4">
+                      <table class="w-full text-xs">
+                        <thead>
+                          <tr class="text-slate-500 italic">
+                            <th class="text-left font-medium pb-2"></th>
+                            <th class="text-center font-medium pb-2" x-text="anal.ts.noekkeltall.forste_aar"></th>
+                            <th class="text-center font-medium pb-2" x-text="anal.ts.noekkeltall.siste_aar"></th>
+                            <th class="text-center font-medium pb-2">CAGR</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">Inntektsramme</td>
+                            <td class="py-2 text-center font-semibold text-slate-700 rounded-l"
+                                :style="'background:' + anal.ts.noekkeltall.tint.ir"
+                                x-text="anal.ts.noekkeltall.ir.forste.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
+                            <td class="py-2 text-center font-semibold text-slate-700"
+                                :style="'background:' + anal.ts.noekkeltall.tint.ir"
+                                x-text="anal.ts.noekkeltall.ir.siste.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
+                            <td class="py-2 text-center font-semibold text-slate-700 rounded-r"
+                                :style="'background:' + anal.ts.noekkeltall.tint.ir"
+                                x-text="anal.ts.noekkeltall.ir.cagr_pct === null ? '–' : anal.ts.noekkeltall.ir.cagr_pct.toFixed(1) + ' %'"></td>
+                          </tr>
+                          <tr>
+                            <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">Avkastning</td>
+                            <td class="py-2 text-center font-semibold text-slate-700 rounded-l"
+                                :style="'background:' + anal.ts.noekkeltall.tint.avkastning"
+                                x-text="anal.ts.noekkeltall.avkastning.forste.toFixed(1) + ' %'"></td>
+                            <td class="py-2 text-center font-semibold text-slate-700 rounded-r"
+                                :style="'background:' + anal.ts.noekkeltall.tint.avkastning"
+                                x-text="anal.ts.noekkeltall.avkastning.siste.toFixed(1) + ' %'"></td>
+                            <td class="py-2 text-center text-slate-500"
+                                x-text="fmtSigned(anal.ts.noekkeltall.avkastning.endring_pp, 1, ' pp')"></td>
+                          </tr>
+                          <tr>
+                            <td colspan="4" class="pt-3"></td>
+                          </tr>
+                          <tr class="text-slate-500 italic">
+                            <th class="text-left font-medium pb-1"></th>
+                            <th colspan="2" class="text-center font-medium pb-1 text-[11px]"
+                                x-text="'Årlige investeringer (' + anal.ts.noekkeltall.investering.aar_fra + '–' + anal.ts.noekkeltall.investering.aar_til + ')'"></th>
+                            <th class="text-center font-medium pb-1 text-[11px]">I prosent av nettkapital</th>
+                          </tr>
+                          <tr>
+                            <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">Investeringsnivå</td>
+                            <td colspan="2" class="py-2 text-center font-semibold text-slate-700 rounded-l"
+                                :style="'background:' + anal.ts.noekkeltall.tint.investering"
+                                x-text="anal.ts.noekkeltall.investering.snitt_mnok === null ? '–' : anal.ts.noekkeltall.investering.snitt_mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK i snitt'"></td>
+                            <td class="py-2 text-center font-semibold text-slate-700 rounded-r"
+                                :style="'background:' + anal.ts.noekkeltall.tint.investering"
+                                x-text="anal.ts.noekkeltall.investering.andel_av_nettkapital_pct === null ? '–' : anal.ts.noekkeltall.investering.andel_av_nettkapital_pct.toFixed(1) + ' %'"></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- 3. Frontselskap per nettnivå over tid -->
+                  <div class="card p-0 overflow-hidden">
+                    <div class="px-4 py-2 bg-[#285064]">
+                      <span class="text-xs font-semibold text-white italic">Frontselskap per nettnivå</span>
+                      <span class="text-[11px] text-white/70">(andel av front, prosent)</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 p-2">
+                      <div>
+                        <div id="analyse-ts-front-dnett"></div>
+                        <div x-show="!anal.ts.front['D-nett'].length"
+                             class="text-center text-xs text-slate-400 py-10">Ikke i DEA-utvalget</div>
+                      </div>
+                      <div>
+                        <div id="analyse-ts-front-rnett"></div>
+                        <div x-show="!anal.ts.front['R-nett'].length"
+                             class="text-center text-xs text-slate-400 py-10">Ikke i DEA-utvalget</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 4. Kostnadsutvikling og -sammensetning -->
+                  <div class="card p-0 overflow-hidden">
+                    <div class="px-4 py-2 bg-[#285064]">
+                      <span class="text-xs font-semibold text-white italic">Kostnadsutvikling og -sammensetning</span>
+                    </div>
+                    <div class="p-4 flex gap-4">
+                      <!-- Stablet søyle for første år, med direkte prosentetiketter -->
+                      <div class="w-24 shrink-0">
+                        <div class="flex flex-col rounded overflow-hidden border border-slate-200">
+                          <template x-for="c in anal.ts.kostnader.komponenter" :key="c.navn">
+                            <div class="flex items-center justify-center text-[10px] font-semibold text-slate-700"
+                                 :style="'background:' + c.farge + '; height:' + Math.max(c.andel_pct * 3.4, 14) + 'px'"
+                                 :title="c.navn + ': ' + c.andel_pct.toFixed(1) + ' %'">
+                              <span x-show="c.andel_pct >= 2.5"
+                                    x-text="c.andel_pct.toFixed(0) + '%'"></span>
+                            </div>
+                          </template>
+                        </div>
+                        <p class="text-center text-xs text-slate-500 mt-1" x-text="anal.ts.kostnader.aar_fra"></p>
+                      </div>
+                      <!-- Endringstabell -->
+                      <div class="flex-1">
+                        <p class="text-[11px] font-semibold text-slate-500 italic text-right mb-1"
+                           x-text="'Endring i perioden (' + anal.ts.kostnader.aar_fra + '–' + anal.ts.kostnader.aar_til + ')'"></p>
+                        <table class="w-full text-xs">
+                          <tbody>
+                            <template x-for="(c, ci) in anal.ts.kostnader.komponenter" :key="c.navn">
+                              <tr :class="ci % 2 ? 'bg-slate-50/60' : ''">
+                                <td class="py-1.5 w-4 pl-1">
+                                  <span class="inline-block w-2.5 h-2.5 rounded-sm"
+                                        :style="'background:' + c.farge"></span>
+                                </td>
+                                <td class="py-1.5 pl-2 text-slate-700" x-text="c.navn"></td>
+                                <td class="py-1.5 text-right text-slate-500 whitespace-nowrap"
+                                    x-text="c.andel_pct.toFixed(1) + ' %'"></td>
+                                <td class="py-1.5 pr-2 text-right font-semibold text-slate-700 whitespace-nowrap"
+                                    x-text="c.endring_pct === null ? '–' : fmtSigned(c.endring_pct, 0, ' %')"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Merknader -->
+                <div x-show="anal.ts.merknader.length" class="card p-4 mt-4">
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Merknader</p>
+                  <ul class="space-y-1">
+                    <template x-for="(m, i) in anal.ts.merknader" :key="i">
+                      <li class="text-[11px] text-slate-500 leading-relaxed">• <span x-text="m"></span></li>
+                    </template>
+                  </ul>
+                </div>
+              </div>
+            </template>
+
+            <div x-show="prog.visning === 'tidsserie' && !anal.ts && !anal.loading" class="empty-state">
+              <p class="text-slate-500 text-sm">Velg selskap og klikk <strong>Beregn flerår</strong>.</p>
+            </div>
+
+            <!-- ── Fusjonsvisning ── -->
+            <template x-if="prog.visning === 'fusjon'">
+              <div>
+                <!-- Fusjonsforutsetninger -->
+                <div class="card p-4 mb-4">
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Fusjonsforutsetninger</p>
+                  <div class="flex flex-wrap items-end gap-4">
+                    <div class="flex-1 min-w-[200px]">
+                      <label class="label">Fusjonerer med</label>
+                      <select x-model="anal.fus.orgn_b" class="input">
+                        <option value="">— velg selskap —</option>
+                        <template x-for="c in progCompanies.filter(c => String(c.orgn) !== String(prog.orgn))" :key="c.orgn">
+                          <option :value="c.orgn" x-text="c.name"></option>
+                        </template>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="label">Fusjonsår</label>
+                      <input type="number" min="2026" max="2035" step="1"
+                             x-model.number="anal.fus.fusjonsaar"
+                             class="w-24 text-sm border border-slate-200 rounded px-2 py-1.5">
+                    </div>
+                    <div>
+                      <label class="label" title="Varig reduksjon i D&V-kostnader. Flere nivåer skilles med komma.">Synergi (%)</label>
+                      <input type="text" x-model="anal.fus.synergier" placeholder="15,33"
+                             class="w-24 text-sm border border-slate-200 rounded px-2 py-1.5">
+                    </div>
+                    <div>
+                      <label class="label" title="Antall år synergien fases inn lineært over.">Innfasing (år)</label>
+                      <input type="number" min="1" max="10" step="1"
+                             x-model.number="anal.fus.innfasing_aar"
+                             class="w-24 text-sm border border-slate-200 rounded px-2 py-1.5">
+                    </div>
+                    <div>
+                      <label class="label" title="Omstillingskostnad i fusjonsåret, i 1000 kr.">Engangskostnad (1000 kr)</label>
+                      <input type="number" min="0" step="1000"
+                             x-model.number="anal.fus.en_gangs_kostnad"
+                             class="w-32 text-sm border border-slate-200 rounded px-2 py-1.5">
+                    </div>
+                    <button @click="loadFusjon()" :disabled="!anal.orgn || !anal.fus.orgn_b || anal.loading"
+                            class="btn-secondary" x-text="anal.loading ? 'Beregner…' : '⟳ Beregn fusjon'"></button>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-5 mt-3">
+                    <label class="flex items-center gap-2">
+                      <input type="checkbox" x-model="anal.fus.synergi_paa_utredning" class="rounded border-slate-300">
+                      <span class="text-xs text-slate-600"
+                            title="Om synergien også treffer utrednings- og koordineringskostnader (RKSU).">
+                        Synergi også på utredningskostnader
+                      </span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                      <input type="checkbox" x-model="anal.fus.ny_enhet_i_front" class="rounded border-slate-300">
+                      <span class="text-xs text-slate-600"
+                            title="Om den fusjonerte enheten kan bli referanseselskap (front) for andre selskaper.">
+                        Ny enhet kan bli frontselskap
+                      </span>
+                    </label>
+                    <p class="text-[11px] text-slate-400">
+                      DEA kjøres på nytt per år og synerginivå – beregningen tar noen sekunder.
+                    </p>
+                  </div>
+                </div>
+
+                <template x-if="anal.fus.data">
+                  <div>
+                    <h2 class="text-lg font-semibold mb-4">
+                      <span x-text="anal.fus.data.selskap_a"></span> +
+                      <span x-text="anal.fus.data.selskap_b"></span>
+                      – fusjon <span x-text="anal.fus.data.fusjonsaar"></span>
+                    </h2>
+
+                    <div class="grid grid-cols-2 gap-4">
+                      <!-- Vektet effektivitet -->
+                      <div class="card p-0 overflow-hidden">
+                        <div class="px-4 py-2 bg-[#285064]">
+                          <span class="text-xs font-semibold text-white italic">Vektet effektivitet</span>
+                          <span class="text-[11px] text-white/70">(prosent)</span>
+                        </div>
+                        <div class="p-3"><div id="fusjon-eff"></div></div>
+                      </div>
+
+                      <!-- Inntektsramme og avkastning -->
+                      <div class="card p-0 overflow-hidden">
+                        <div class="px-4 py-2 bg-[#285064] flex items-center justify-between gap-3">
+                          <span class="text-xs font-semibold text-white italic">Inntektsramme og avkastning</span>
+                          <select x-model.number="anal.fus.noekkeltall_aar"
+                                  class="text-[11px] bg-white/15 text-white border border-white/25 rounded px-1.5 py-0.5 shrink-0">
+                            <template x-for="y in fusNoekkeltallAar()" :key="y">
+                              <option :value="y" x-text="y" class="text-slate-700"></option>
+                            </template>
+                          </select>
+                        </div>
+                        <div class="p-4">
+                          <table class="w-full text-xs">
+                            <thead>
+                              <tr class="text-slate-500 italic">
+                                <th class="text-left font-medium pb-2">Alternativ</th>
+                                <th class="text-center font-medium pb-2">Inntektsramme</th>
+                                <th class="text-center font-medium pb-2">Avkastning</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td class="py-2 pr-3 text-slate-700"
+                                    x-text="fusNoekkeltall().a.navn + ' ' + fusNoekkeltall().aar"></td>
+                                <td class="py-2 text-center font-semibold text-slate-700"
+                                    :style="'background:' + fusNoekkeltall().tint.ir"
+                                    x-text="fusNoekkeltall().a.ir_mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
+                                <td class="py-2 text-center font-semibold text-slate-700"
+                                    :style="'background:' + fusNoekkeltall().tint.avkastning"
+                                    x-text="fusNoekkeltall().a.avk_pct.toFixed(1) + ' %'"></td>
+                              </tr>
+                              <tr>
+                                <td class="py-2 pr-3 text-slate-500"
+                                    x-text="fusNoekkeltall().b.navn + ' ' + fusNoekkeltall().aar"></td>
+                                <td class="py-2 text-center text-slate-600"
+                                    x-text="fusNoekkeltall().b.ir_mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
+                                <td class="py-2 text-center text-slate-600"
+                                    x-text="fusNoekkeltall().b.avk_pct.toFixed(1) + ' %'"></td>
+                              </tr>
+                              <template x-for="s in fusNoekkeltall().fusjonert" :key="s.synergi_pct">
+                                <tr>
+                                  <td class="py-2 pr-3 text-slate-700"
+                                      x-text="'Fusjonert (' + s.synergi_pct.toFixed(0) + ' % synergi)'"></td>
+                                  <td class="py-2 text-center font-semibold text-slate-700"
+                                      :style="'background:' + fusNoekkeltall().tint.ir"
+                                      x-text="s.ir_mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
+                                  <td class="py-2 text-center font-semibold text-slate-700"
+                                      :style="'background:' + fusNoekkeltall().tint.avkastning"
+                                      x-text="s.avk_pct.toFixed(1) + ' %'"></td>
+                                </tr>
+                              </template>
+                              <tr class="border-t border-slate-100">
+                                <td class="py-2 pr-3 text-slate-400 italic">Sum uten fusjon</td>
+                                <td class="py-2 text-center text-slate-400"
+                                    x-text="(fusNoekkeltall().a.ir_mnok + fusNoekkeltall().b.ir_mnok).toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
+                                <td class="py-2"></td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <!-- Frontselskap for den fusjonerte enheten -->
+                      <div class="card p-0 overflow-hidden col-span-2">
+                        <div class="px-4 py-2 bg-[#285064]">
+                          <span class="text-xs font-semibold text-white italic">Frontselskap for den fusjonerte enheten</span>
+                          <span class="text-[11px] text-white/70">(andel av front, prosent – laveste synerginivå)</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 p-2">
+                          <div><div id="fusjon-front-dnett"></div></div>
+                          <div><div id="fusjon-front-rnett"></div></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Merknader -->
+                    <div class="card p-4 mt-4">
+                      <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Merknader</p>
+                      <ul class="space-y-1">
+                        <template x-for="(m, i) in anal.fus.data.merknader" :key="i">
+                          <li class="text-[11px] text-slate-500 leading-relaxed">• <span x-text="m"></span></li>
+                        </template>
+                      </ul>
+                    </div>
+                  </div>
+                </template>
+
+                <div x-show="!anal.fus.data && !anal.loading" class="empty-state">
+                  <p class="text-slate-400 text-sm">Velg selskap å fusjonere med, og trykk «Beregn fusjon».</p>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -777,588 +1434,7 @@
       </section>
 
 
-      <!-- ══════════ TAB 3: KOSTNADER ══════════ -->
-      <section x-show="tab === 'kostnader'" x-cloak x-init="$watch('tab', v => { if (v === 'kostnader') loadKostnader() })">
-
-        <div class="flex flex-wrap items-center gap-3 mb-4">
-          <select x-model="kost.orgn" class="input w-72" @change="loadKostnader()">
-            <option value="">— alle selskaper —</option>
-            <template x-for="c in progCompanies" :key="c.orgn">
-              <option :value="c.orgn" x-text="c.name"></option>
-            </template>
-          </select>
-          <button x-show="kost.table.length" @click="downloadCsv(kost.table, 'kostnader')" class="btn-secondary">↓ CSV</button>
-        </div>
-
-        <div x-show="kost.table.length > 0" class="card p-0 overflow-hidden">
-          <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <template x-for="col in kostColumns" :key="col">
-                    <th x-text="col"></th>
-                  </template>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="(row, ri) in kost.table" :key="ri">
-                  <tr>
-                    <template x-for="col in kostColumns" :key="col">
-                      <td x-text="fmtCell(row[col])"></td>
-                    </template>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div x-show="!kost.table.length && !loading" class="empty-state">
-          <p class="text-slate-500 text-sm">Velg selskap for å filtrere, eller se alle selskaper.</p>
-        </div>
-
-      </section>
-
-
-      <!-- ══════════ TAB: ANALYSE ══════════ -->
-      <section x-show="tab === 'analyse'" x-cloak>
-
-        <!-- Kontroller -->
-        <div class="card p-4 mb-4">
-          <div class="flex flex-wrap items-end gap-4">
-            <div class="flex-1 min-w-[220px]">
-              <label class="label">Selskap</label>
-              <select x-model="anal.orgn" class="input" @change="loadAnalyse()">
-                <option value="">— velg selskap —</option>
-                <template x-for="c in progCompanies" :key="c.orgn">
-                  <option :value="c.orgn" x-text="c.name"></option>
-                </template>
-              </select>
-            </div>
-            <div x-show="anal.visning === 'aar'">
-              <label class="label">År</label>
-              <select x-model.number="anal.aar" class="input" @change="loadAnalyse()">
-                <template x-for="y in (anal.data?.aar_tilgjengelig ?? [2026,2027,2028,2029,2030,2031,2032,2033,2034,2035])" :key="y">
-                  <option :value="y" x-text="y"></option>
-                </template>
-              </select>
-            </div>
-            <div class="flex rounded overflow-hidden border border-slate-200">
-              <button @click="settAnalyseVisning('aar')" class="px-3 py-1.5 text-xs font-semibold"
-                      :class="anal.visning === 'aar' ? 'bg-brand-100 text-brand-700' : 'bg-white text-slate-500'">Ett år</button>
-              <button @click="settAnalyseVisning('tidsserie')" class="px-3 py-1.5 text-xs font-semibold border-l border-slate-200"
-                      :class="anal.visning === 'tidsserie' ? 'bg-brand-100 text-brand-700' : 'bg-white text-slate-500'">Tidsserie</button>
-              <button @click="settAnalyseVisning('fusjon')" class="px-3 py-1.5 text-xs font-semibold border-l border-slate-200"
-                      :class="anal.visning === 'fusjon' ? 'bg-brand-100 text-brand-700' : 'bg-white text-slate-500'">Fusjon</button>
-            </div>
-            <button x-show="anal.visning !== 'fusjon'"
-                    @click="anal.visning === 'tidsserie' ? loadTidsserie() : loadAnalyse()"
-                    :disabled="!anal.orgn || anal.loading"
-                    class="btn-secondary" x-text="anal.loading ? 'Laster…' : '⟳ Oppdater'"></button>
-          </div>
-          <!-- The buttons above are gated on progCompanies, so an empty list has
-               to explain itself — otherwise it just looks like a broken button. -->
-          <div x-show="!progCompanies.length" class="mt-2 flex items-start gap-2">
-            <p class="text-[11px]"
-               :class="progCompaniesError ? 'text-red-600' : 'text-slate-400'"
-               x-text="progCompaniesError || 'Ingen selskaper lastet — gå til Steg 1 og velg en kjøring først.'"></p>
-            <button @click="retryProgCompanies()"
-                    class="text-[11px] text-brand-600 hover:underline shrink-0">Prøv igjen</button>
-          </div>
-        </div>
-
-        <!-- ── Ettårsvisning ── -->
-        <template x-if="anal.visning === 'aar' && anal.data">
-          <div>
-            <!-- Overskrift -->
-            <h2 class="text-lg font-semibold mb-4">
-              <span x-text="anal.data.selskap"></span> – inntektsramme
-              <span x-text="anal.data.aar"></span>
-            </h2>
-
-            <!-- Rad 1: de to hero-tallene -->
-            <div class="grid grid-cols-2 gap-4 mb-4">
-              <!-- Inntektsramme -->
-              <div class="card p-0 overflow-hidden">
-                <div class="px-4 py-2 bg-[#285064]">
-                  <span class="text-xs font-semibold text-white italic">Inntektsramme etter bransjeoverheng</span>
-                </div>
-                <div class="flex items-center gap-5 p-5">
-                  <div class="shrink-0 w-28 h-28 rounded-full bg-[#285064] flex flex-col items-center justify-center">
-                    <span class="text-xl font-bold text-white leading-tight"
-                          x-text="anal.data.ir.mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0})"></span>
-                    <span class="text-[10px] font-semibold text-white/80">MNOK</span>
-                  </div>
-                  <div>
-                    <p class="text-base font-bold italic text-slate-700"
-                       x-text="fmtSigned(anal.data.ir.endring_mnok, 0, ' MNOK')"></p>
-                    <p class="text-xs text-slate-400"
-                       x-text="anal.data.forrige_aar ? 'endring fra IR' + String(anal.data.forrige_aar).slice(2) : 'ingen endringstall'"></p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Avkastning -->
-              <div class="card p-0 overflow-hidden">
-                <div class="px-4 py-2 bg-[#285064]">
-                  <span class="text-xs font-semibold text-white italic">Avkastning på nettkapital</span>
-                </div>
-                <div class="flex items-center gap-5 p-5">
-                  <div class="shrink-0 w-28 h-28 rounded-full bg-[#285064] flex flex-col items-center justify-center">
-                    <span class="text-xl font-bold text-white leading-tight"
-                          x-text="anal.data.avkastning.pct.toLocaleString('nb-NO', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + ' %'"></span>
-                    <span class="text-[10px] font-semibold text-white/80"
-                          x-text="'(' + anal.data.avkastning.mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK)'"></span>
-                  </div>
-                  <div>
-                    <p class="text-base font-bold italic text-slate-700"
-                       x-text="fmtSigned(anal.data.avkastning.endring_pp, 1, ' pp')"></p>
-                    <p class="text-xs text-slate-400"
-                       x-text="anal.data.forrige_aar ? 'endring fra IR' + String(anal.data.forrige_aar).slice(2) : 'ingen endringstall'"></p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Rad 2: effektivitet per trinn + frontselskap -->
-            <div class="grid grid-cols-2 gap-4">
-
-              <!-- Effektivitet per trinn -->
-              <div class="card p-0 overflow-hidden">
-                <div class="px-4 py-2 bg-[#285064]">
-                  <span class="text-xs font-semibold text-white italic">Effektivitet per trinn</span>
-                </div>
-                <div class="p-4">
-                  <!-- Kolonneoverskrift for endringskolonnen, som i analysen -->
-                  <div class="text-[10px] font-semibold text-slate-500 text-right mb-1 pr-16"
-                       x-text="anal.data.forrige_aar ? 'Endring fra IR' + String(anal.data.forrige_aar).slice(2) : 'Endring'"></div>
-
-                  <!-- Én boks per nettnivå, tonet i nivåets fargefamilie -->
-                  <template x-for="(g, gi) in analTrinnGrupper" :key="g.nivaa + gi">
-                    <div class="rounded border mb-1.5"
-                         :style="'background:' + (anal.data.nivaastil[g.nivaa]?.bakgrunn ?? '#ffffff') + '; border-color:' + (anal.data.nivaastil[g.nivaa]?.kant ?? '#e2e8f0')">
-                      <table class="w-full text-xs table-fixed">
-                        <tbody>
-                          <template x-for="(r, ri) in g.rader" :key="r.nivaa + r.trinn">
-                            <tr>
-                              <td class="py-1.5 pl-3 pr-2 whitespace-nowrap text-slate-700 w-[38%] border-r"
-                                  :style="'border-color:' + (anal.data.nivaastil[g.nivaa]?.kant ?? '#e2e8f0')"
-                                  x-text="r.label"></td>
-                              <!-- 4px avrundet stolpeende, 2px luft mellom stolpene -->
-                              <td class="py-1.5 pl-2 w-[30%]">
-                                <div class="h-[15px] my-[2px] rounded-r"
-                                     :style="'width:' + analBarPct(r.verdi_pct) + '%; background:' + r.farge"
-                                     :title="r.label + ': ' + r.verdi_pct.toFixed(1) + ' %'"></div>
-                              </td>
-                              <td class="py-1.5 pl-2 font-semibold text-slate-700 whitespace-nowrap w-[15%]"
-                                  x-text="r.verdi_pct.toLocaleString('nb-NO', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + ' %'"></td>
-                              <td class="py-1.5 px-1 text-right text-slate-500 whitespace-nowrap w-[17%]"
-                                  x-text="r.basisaar ? 'basisår' : fmtSigned(r.endring_pp, 1, ' pp')"></td>
-                              <td class="py-1.5 pr-3 pl-2 text-right font-bold italic text-slate-600 whitespace-nowrap w-16"
-                                  x-text="ri === 0 ? g.nivaa : ''"></td>
-                            </tr>
-                          </template>
-                        </tbody>
-                      </table>
-                    </div>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Frontselskap per nettnivå -->
-              <div class="card p-0 overflow-hidden">
-                <div class="px-4 py-2 bg-[#285064]">
-                  <span class="text-xs font-semibold text-white italic">Frontselskap per nettnivå</span>
-                </div>
-                <div class="grid grid-cols-2 gap-2 p-2">
-                  <div>
-                    <div id="analyse-front-dnett"></div>
-                    <div x-show="!anal.data.front['D-nett'].length"
-                         class="text-center text-xs text-slate-400 py-8">Ikke i DEA-utvalget</div>
-                  </div>
-                  <div>
-                    <div id="analyse-front-rnett"></div>
-                    <div x-show="!anal.data.front['R-nett'].length"
-                         class="text-center text-xs text-slate-400 py-8">Ikke i DEA-utvalget</div>
-                  </div>
-                </div>
-                <!-- Tabellvisning: identitet er aldri bare farge -->
-                <div class="px-4 pb-4">
-                  <table class="w-full text-xs">
-                    <tbody>
-                      <template x-for="niv in ['D-nett','R-nett']" :key="niv">
-                        <template x-for="(r, i) in anal.data.front[niv]" :key="niv + r.navn">
-                          <tr>
-                            <td class="py-1 w-4">
-                              <span class="inline-block w-2.5 h-2.5 rounded-sm"
-                                    :style="'background:' + r.farge"></span>
-                            </td>
-                            <td class="py-1 text-slate-400 w-14" x-text="i === 0 ? niv : ''"></td>
-                            <td class="py-1 text-slate-600" x-text="r.navn"></td>
-                            <td class="py-1 text-right font-semibold text-slate-700 whitespace-nowrap"
-                                x-text="r.andel_pct.toLocaleString('nb-NO', {maximumFractionDigits: 1}) + ' %'"></td>
-                          </tr>
-                        </template>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <!-- Merknader -->
-            <div x-show="anal.data.merknader.length" class="card p-4 mt-4">
-              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Merknader</p>
-              <ul class="space-y-1">
-                <template x-for="(m, i) in anal.data.merknader" :key="i">
-                  <li class="text-[11px] text-slate-500 leading-relaxed">• <span x-text="m"></span></li>
-                </template>
-              </ul>
-            </div>
-          </div>
-        </template>
-
-        <!-- ── Tidsserievisning ── -->
-        <template x-if="anal.visning === 'tidsserie' && anal.ts">
-          <div>
-            <h2 class="text-lg font-semibold mb-4">
-              <span x-text="anal.ts.selskap"></span> – utvikling
-              <span x-text="anal.ts.aar[0] + '–' + anal.ts.aar[anal.ts.aar.length - 1]"></span>
-            </h2>
-
-            <div class="grid grid-cols-2 gap-4">
-
-              <!-- 1. Effektivitet per nettnivå og vektet -->
-              <div class="card p-0 overflow-hidden">
-                <div class="px-4 py-2 bg-[#285064]">
-                  <span class="text-xs font-semibold text-white italic">Effektivitet per nettnivå og vektet</span>
-                  <span class="text-[11px] text-white/70">(prosent)</span>
-                </div>
-                <div class="p-3"><div id="analyse-ts-eff"></div></div>
-              </div>
-
-              <!-- 2. Inntektsramme, avkastning og investeringsnivå -->
-              <div class="card p-0 overflow-hidden">
-                <div class="px-4 py-2 bg-[#285064]">
-                  <span class="text-xs font-semibold text-white italic">Inntektsramme, avkastning og investeringsnivå</span>
-                </div>
-                <div class="p-4">
-                  <table class="w-full text-xs">
-                    <thead>
-                      <tr class="text-slate-500 italic">
-                        <th class="text-left font-medium pb-2"></th>
-                        <th class="text-center font-medium pb-2" x-text="anal.ts.noekkeltall.forste_aar"></th>
-                        <th class="text-center font-medium pb-2" x-text="anal.ts.noekkeltall.siste_aar"></th>
-                        <th class="text-center font-medium pb-2">CAGR</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">Inntektsramme</td>
-                        <td class="py-2 text-center font-semibold text-slate-700 rounded-l"
-                            :style="'background:' + anal.ts.noekkeltall.tint.ir"
-                            x-text="anal.ts.noekkeltall.ir.forste.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
-                        <td class="py-2 text-center font-semibold text-slate-700"
-                            :style="'background:' + anal.ts.noekkeltall.tint.ir"
-                            x-text="anal.ts.noekkeltall.ir.siste.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
-                        <td class="py-2 text-center font-semibold text-slate-700 rounded-r"
-                            :style="'background:' + anal.ts.noekkeltall.tint.ir"
-                            x-text="anal.ts.noekkeltall.ir.cagr_pct === null ? '–' : anal.ts.noekkeltall.ir.cagr_pct.toFixed(1) + ' %'"></td>
-                      </tr>
-                      <tr>
-                        <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">Avkastning</td>
-                        <td class="py-2 text-center font-semibold text-slate-700 rounded-l"
-                            :style="'background:' + anal.ts.noekkeltall.tint.avkastning"
-                            x-text="anal.ts.noekkeltall.avkastning.forste.toFixed(1) + ' %'"></td>
-                        <td class="py-2 text-center font-semibold text-slate-700 rounded-r"
-                            :style="'background:' + anal.ts.noekkeltall.tint.avkastning"
-                            x-text="anal.ts.noekkeltall.avkastning.siste.toFixed(1) + ' %'"></td>
-                        <td class="py-2 text-center text-slate-500"
-                            x-text="fmtSigned(anal.ts.noekkeltall.avkastning.endring_pp, 1, ' pp')"></td>
-                      </tr>
-                      <tr>
-                        <td colspan="4" class="pt-3"></td>
-                      </tr>
-                      <tr class="text-slate-500 italic">
-                        <th class="text-left font-medium pb-1"></th>
-                        <th colspan="2" class="text-center font-medium pb-1 text-[11px]"
-                            x-text="'Årlige investeringer (' + anal.ts.noekkeltall.investering.aar_fra + '–' + anal.ts.noekkeltall.investering.aar_til + ')'"></th>
-                        <th class="text-center font-medium pb-1 text-[11px]">I prosent av nettkapital</th>
-                      </tr>
-                      <tr>
-                        <td class="py-2 pr-3 text-slate-700 whitespace-nowrap">Investeringsnivå</td>
-                        <td colspan="2" class="py-2 text-center font-semibold text-slate-700 rounded-l"
-                            :style="'background:' + anal.ts.noekkeltall.tint.investering"
-                            x-text="anal.ts.noekkeltall.investering.snitt_mnok === null ? '–' : anal.ts.noekkeltall.investering.snitt_mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK i snitt'"></td>
-                        <td class="py-2 text-center font-semibold text-slate-700 rounded-r"
-                            :style="'background:' + anal.ts.noekkeltall.tint.investering"
-                            x-text="anal.ts.noekkeltall.investering.andel_av_nettkapital_pct === null ? '–' : anal.ts.noekkeltall.investering.andel_av_nettkapital_pct.toFixed(1) + ' %'"></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <!-- 3. Frontselskap per nettnivå over tid -->
-              <div class="card p-0 overflow-hidden">
-                <div class="px-4 py-2 bg-[#285064]">
-                  <span class="text-xs font-semibold text-white italic">Frontselskap per nettnivå</span>
-                  <span class="text-[11px] text-white/70">(andel av front, prosent)</span>
-                </div>
-                <div class="grid grid-cols-2 gap-2 p-2">
-                  <div>
-                    <div id="analyse-ts-front-dnett"></div>
-                    <div x-show="!anal.ts.front['D-nett'].length"
-                         class="text-center text-xs text-slate-400 py-10">Ikke i DEA-utvalget</div>
-                  </div>
-                  <div>
-                    <div id="analyse-ts-front-rnett"></div>
-                    <div x-show="!anal.ts.front['R-nett'].length"
-                         class="text-center text-xs text-slate-400 py-10">Ikke i DEA-utvalget</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 4. Kostnadsutvikling og -sammensetning -->
-              <div class="card p-0 overflow-hidden">
-                <div class="px-4 py-2 bg-[#285064]">
-                  <span class="text-xs font-semibold text-white italic">Kostnadsutvikling og -sammensetning</span>
-                </div>
-                <div class="p-4 flex gap-4">
-                  <!-- Stablet søyle for første år, med direkte prosentetiketter -->
-                  <div class="w-24 shrink-0">
-                    <div class="flex flex-col rounded overflow-hidden border border-slate-200">
-                      <template x-for="c in anal.ts.kostnader.komponenter" :key="c.navn">
-                        <div class="flex items-center justify-center text-[10px] font-semibold text-slate-700"
-                             :style="'background:' + c.farge + '; height:' + Math.max(c.andel_pct * 3.4, 14) + 'px'"
-                             :title="c.navn + ': ' + c.andel_pct.toFixed(1) + ' %'">
-                          <span x-show="c.andel_pct >= 2.5"
-                                x-text="c.andel_pct.toFixed(0) + '%'"></span>
-                        </div>
-                      </template>
-                    </div>
-                    <p class="text-center text-xs text-slate-500 mt-1" x-text="anal.ts.kostnader.aar_fra"></p>
-                  </div>
-                  <!-- Endringstabell -->
-                  <div class="flex-1">
-                    <p class="text-[11px] font-semibold text-slate-500 italic text-right mb-1"
-                       x-text="'Endring i perioden (' + anal.ts.kostnader.aar_fra + '–' + anal.ts.kostnader.aar_til + ')'"></p>
-                    <table class="w-full text-xs">
-                      <tbody>
-                        <template x-for="(c, ci) in anal.ts.kostnader.komponenter" :key="c.navn">
-                          <tr :class="ci % 2 ? 'bg-slate-50/60' : ''">
-                            <td class="py-1.5 w-4 pl-1">
-                              <span class="inline-block w-2.5 h-2.5 rounded-sm"
-                                    :style="'background:' + c.farge"></span>
-                            </td>
-                            <td class="py-1.5 pl-2 text-slate-700" x-text="c.navn"></td>
-                            <td class="py-1.5 text-right text-slate-500 whitespace-nowrap"
-                                x-text="c.andel_pct.toFixed(1) + ' %'"></td>
-                            <td class="py-1.5 pr-2 text-right font-semibold text-slate-700 whitespace-nowrap"
-                                x-text="c.endring_pct === null ? '–' : fmtSigned(c.endring_pct, 0, ' %')"></td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Merknader -->
-            <div x-show="anal.ts.merknader.length" class="card p-4 mt-4">
-              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Merknader</p>
-              <ul class="space-y-1">
-                <template x-for="(m, i) in anal.ts.merknader" :key="i">
-                  <li class="text-[11px] text-slate-500 leading-relaxed">• <span x-text="m"></span></li>
-                </template>
-              </ul>
-            </div>
-          </div>
-        </template>
-
-        <!-- ── Fusjonsvisning ── -->
-        <template x-if="anal.visning === 'fusjon'">
-          <div>
-            <!-- Fusjonsforutsetninger -->
-            <div class="card p-4 mb-4">
-              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Fusjonsforutsetninger</p>
-              <div class="flex flex-wrap items-end gap-4">
-                <div class="flex-1 min-w-[200px]">
-                  <label class="label">Fusjonerer med</label>
-                  <select x-model="anal.fus.orgn_b" class="input">
-                    <option value="">— velg selskap —</option>
-                    <template x-for="c in progCompanies.filter(c => String(c.orgn) !== String(anal.orgn))" :key="c.orgn">
-                      <option :value="c.orgn" x-text="c.name"></option>
-                    </template>
-                  </select>
-                </div>
-                <div>
-                  <label class="label">Fusjonsår</label>
-                  <input type="number" min="2026" max="2035" step="1"
-                         x-model.number="anal.fus.fusjonsaar"
-                         class="w-24 text-sm border border-slate-200 rounded px-2 py-1.5">
-                </div>
-                <div>
-                  <label class="label" title="Varig reduksjon i D&V-kostnader. Flere nivåer skilles med komma.">Synergi (%)</label>
-                  <input type="text" x-model="anal.fus.synergier" placeholder="15,33"
-                         class="w-24 text-sm border border-slate-200 rounded px-2 py-1.5">
-                </div>
-                <div>
-                  <label class="label" title="Antall år synergien fases inn lineært over.">Innfasing (år)</label>
-                  <input type="number" min="1" max="10" step="1"
-                         x-model.number="anal.fus.innfasing_aar"
-                         class="w-24 text-sm border border-slate-200 rounded px-2 py-1.5">
-                </div>
-                <div>
-                  <label class="label" title="Omstillingskostnad i fusjonsåret, i 1000 kr.">Engangskostnad (1000 kr)</label>
-                  <input type="number" min="0" step="1000"
-                         x-model.number="anal.fus.en_gangs_kostnad"
-                         class="w-32 text-sm border border-slate-200 rounded px-2 py-1.5">
-                </div>
-                <button @click="loadFusjon()" :disabled="!anal.orgn || !anal.fus.orgn_b || anal.loading"
-                        class="btn-secondary" x-text="anal.loading ? 'Beregner…' : '⟳ Beregn fusjon'"></button>
-              </div>
-              <div class="flex flex-wrap items-center gap-5 mt-3">
-                <label class="flex items-center gap-2">
-                  <input type="checkbox" x-model="anal.fus.synergi_paa_utredning" class="rounded border-slate-300">
-                  <span class="text-xs text-slate-600"
-                        title="Om synergien også treffer utrednings- og koordineringskostnader (RKSU).">
-                    Synergi også på utredningskostnader
-                  </span>
-                </label>
-                <label class="flex items-center gap-2">
-                  <input type="checkbox" x-model="anal.fus.ny_enhet_i_front" class="rounded border-slate-300">
-                  <span class="text-xs text-slate-600"
-                        title="Om den fusjonerte enheten kan bli referanseselskap (front) for andre selskaper.">
-                    Ny enhet kan bli frontselskap
-                  </span>
-                </label>
-                <p class="text-[11px] text-slate-400">
-                  DEA kjøres på nytt per år og synerginivå – beregningen tar noen sekunder.
-                </p>
-              </div>
-            </div>
-
-            <template x-if="anal.fus.data">
-              <div>
-                <h2 class="text-lg font-semibold mb-4">
-                  <span x-text="anal.fus.data.selskap_a"></span> +
-                  <span x-text="anal.fus.data.selskap_b"></span>
-                  – fusjon <span x-text="anal.fus.data.fusjonsaar"></span>
-                </h2>
-
-                <div class="grid grid-cols-2 gap-4">
-                  <!-- Vektet effektivitet -->
-                  <div class="card p-0 overflow-hidden">
-                    <div class="px-4 py-2 bg-[#285064]">
-                      <span class="text-xs font-semibold text-white italic">Vektet effektivitet</span>
-                      <span class="text-[11px] text-white/70">(prosent)</span>
-                    </div>
-                    <div class="p-3"><div id="fusjon-eff"></div></div>
-                  </div>
-
-                  <!-- Inntektsramme og avkastning -->
-                  <div class="card p-0 overflow-hidden">
-                    <div class="px-4 py-2 bg-[#285064] flex items-center justify-between gap-3">
-                      <span class="text-xs font-semibold text-white italic">Inntektsramme og avkastning</span>
-                      <select x-model.number="anal.fus.noekkeltall_aar"
-                              class="text-[11px] bg-white/15 text-white border border-white/25 rounded px-1.5 py-0.5 shrink-0">
-                        <template x-for="y in fusNoekkeltallAar()" :key="y">
-                          <option :value="y" x-text="y" class="text-slate-700"></option>
-                        </template>
-                      </select>
-                    </div>
-                    <div class="p-4">
-                      <table class="w-full text-xs">
-                        <thead>
-                          <tr class="text-slate-500 italic">
-                            <th class="text-left font-medium pb-2">Alternativ</th>
-                            <th class="text-center font-medium pb-2">Inntektsramme</th>
-                            <th class="text-center font-medium pb-2">Avkastning</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td class="py-2 pr-3 text-slate-700"
-                                x-text="fusNoekkeltall().a.navn + ' ' + fusNoekkeltall().aar"></td>
-                            <td class="py-2 text-center font-semibold text-slate-700"
-                                :style="'background:' + fusNoekkeltall().tint.ir"
-                                x-text="fusNoekkeltall().a.ir_mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
-                            <td class="py-2 text-center font-semibold text-slate-700"
-                                :style="'background:' + fusNoekkeltall().tint.avkastning"
-                                x-text="fusNoekkeltall().a.avk_pct.toFixed(1) + ' %'"></td>
-                          </tr>
-                          <tr>
-                            <td class="py-2 pr-3 text-slate-500"
-                                x-text="fusNoekkeltall().b.navn + ' ' + fusNoekkeltall().aar"></td>
-                            <td class="py-2 text-center text-slate-600"
-                                x-text="fusNoekkeltall().b.ir_mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
-                            <td class="py-2 text-center text-slate-600"
-                                x-text="fusNoekkeltall().b.avk_pct.toFixed(1) + ' %'"></td>
-                          </tr>
-                          <template x-for="s in fusNoekkeltall().fusjonert" :key="s.synergi_pct">
-                            <tr>
-                              <td class="py-2 pr-3 text-slate-700"
-                                  x-text="'Fusjonert (' + s.synergi_pct.toFixed(0) + ' % synergi)'"></td>
-                              <td class="py-2 text-center font-semibold text-slate-700"
-                                  :style="'background:' + fusNoekkeltall().tint.ir"
-                                  x-text="s.ir_mnok.toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
-                              <td class="py-2 text-center font-semibold text-slate-700"
-                                  :style="'background:' + fusNoekkeltall().tint.avkastning"
-                                  x-text="s.avk_pct.toFixed(1) + ' %'"></td>
-                            </tr>
-                          </template>
-                          <tr class="border-t border-slate-100">
-                            <td class="py-2 pr-3 text-slate-400 italic">Sum uten fusjon</td>
-                            <td class="py-2 text-center text-slate-400"
-                                x-text="(fusNoekkeltall().a.ir_mnok + fusNoekkeltall().b.ir_mnok).toLocaleString('nb-NO', {maximumFractionDigits: 0}) + ' MNOK'"></td>
-                            <td class="py-2"></td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <!-- Frontselskap for den fusjonerte enheten -->
-                  <div class="card p-0 overflow-hidden col-span-2">
-                    <div class="px-4 py-2 bg-[#285064]">
-                      <span class="text-xs font-semibold text-white italic">Frontselskap for den fusjonerte enheten</span>
-                      <span class="text-[11px] text-white/70">(andel av front, prosent – laveste synerginivå)</span>
-                    </div>
-                    <div class="grid grid-cols-2 gap-2 p-2">
-                      <div><div id="fusjon-front-dnett"></div></div>
-                      <div><div id="fusjon-front-rnett"></div></div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Merknader -->
-                <div class="card p-4 mt-4">
-                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Merknader</p>
-                  <ul class="space-y-1">
-                    <template x-for="(m, i) in anal.fus.data.merknader" :key="i">
-                      <li class="text-[11px] text-slate-500 leading-relaxed">• <span x-text="m"></span></li>
-                    </template>
-                  </ul>
-                </div>
-              </div>
-            </template>
-
-            <div x-show="!anal.fus.data && !anal.loading" class="empty-state">
-              <p class="text-slate-400 text-sm">Velg selskap å fusjonere med, og trykk «Beregn fusjon».</p>
-            </div>
-          </div>
-        </template>
-
-        <div x-show="anal.visning === 'aar' && !anal.data && !anal.ts && !anal.loading" class="empty-state">
-          <p class="text-slate-400 text-sm">Velg selskap for å se analysen.</p>
-        </div>
-
-      </section>
-
-
-      <!-- ══════════ TAB 4: FRONTSELSKAPSANALYSE ══════════ -->
+      <!-- ══════════ TAB 3: FRONTSELSKAPSANALYSE ══════════ -->
       <section x-show="tab === 'frontier'" x-cloak>
 
         <!-- Controls -->
@@ -1376,7 +1452,7 @@
             <div x-show="!deaCompanies.length" class="mt-1 flex items-start gap-2">
               <p class="text-[11px]"
                  :class="deaCompaniesError ? 'text-red-600' : 'text-slate-400'"
-                 x-text="deaCompaniesError || 'Ingen selskaper lastet — gå til Steg 1 og velg en kjøring først.'"></p>
+                 x-text="deaCompaniesError || 'Ingen selskaper lastet — velg en kjøring i menyen øverst.'"></p>
               <button @click="retryDeaCompanies()"
                       class="text-[11px] text-brand-600 hover:underline shrink-0">Prøv igjen</button>
             </div>
@@ -1619,7 +1695,7 @@
 
       </section>
 
-      <!-- ══════════ TAB 5: OPPGAVEELASTISITETER ══════════ -->
+      <!-- ══════════ TAB 4: OPPGAVEELASTISITETER ══════════ -->
       <section x-show="tab === 'elasticities'" x-cloak
                x-init="$watch('tab', v => { if (v === 'elasticities') loadElasticities() })">
 

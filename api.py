@@ -43,6 +43,7 @@ sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
 import fusjon_grunnlagsdata  # noqa: E402  (needs ROOT on sys.path)
+import variabelnavn  # noqa: E402  (needs ROOT on sys.path)
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,11 @@ def _latest_run_paths(run_name: str | None = None) -> tuple[Path, Path, Path] | 
 
 class ConfigUpdate(BaseModel):
     content: str  # raw YAML text
+
+
+class SonepriserRequest(BaseModel):
+    # {"NO1": 624.3, ...} in NOK/MWh — the unit config.yaml uses.
+    priser: dict[str, float]
 
 
 class ScenarioRequest(BaseModel):
@@ -404,6 +410,67 @@ def save_input_file_sheet(key: str, body: SheetSaveRequest):
 # /api/upload-grunnlagsdata
 # ---------------------------------------------------------------------------
 
+def _strip_navnerad(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop the label row the download adds, if it is there.
+
+    ``/api/grunnlagsdata/download`` writes the full variable names as row 1
+    below the column headers, so the file can be read in Excel without a key
+    alongside it. That row has to come off again before anything computes on
+    the numbers: it makes every column dtype ``object`` and ``orgn`` a string,
+    and the R join then matches nothing. The tell is a non-numeric ``orgn``.
+    """
+    if df.empty or "orgn" not in df.columns:
+        return df
+    if not pd.isna(pd.to_numeric(pd.Series([df["orgn"].iloc[0]]), errors="coerce").iloc[0]):
+        return df
+    df = df.iloc[1:].reset_index(drop=True)
+    # The text row forced every column to object; put the numbers back, but only
+    # where the whole column parses — comp holds company names, not numbers.
+    for col in df.columns:
+        num = pd.to_numeric(df[col], errors="coerce")
+        if not (num.isna() & df[col].notna()).any():
+            df[col] = num
+    return df
+
+
+@app.get("/api/grunnlagsdata/download")
+def download_grunnlagsdata(run_name: str | None = Query(default=None)):
+    """Grunnlagsdata as CSV, with an extra row carrying the full names.
+
+    The column names are R abbreviations. Without the label row, anyone editing
+    the file in Excel has to look up what ``ld_OPEXxS`` and ``rd_wv.ol`` mean
+    somewhere else. The row is stripped on upload — see ``_strip_navnerad``.
+    """
+    grunn = _resolve_grunnlagsdata(run_name)
+    if not grunn:
+        raise HTTPException(404, "Ingen grunnlagsdata funnet. Klikk «Rediger grunnlagsdata» først.")
+    df = pd.read_excel(grunn) if str(grunn).lower().endswith((".xlsx", ".xls")) else _read_grunn_csv(grunn)
+    df = df.loc[:, [c for c in df.columns if not str(c).startswith("Unnamed:")]]
+
+    navnerad = pd.DataFrame([{c: variabelnavn.navn(str(c)) for c in df.columns}])
+    ut = pd.concat([navnerad, df.astype(object)], ignore_index=True)
+
+    buf = io.StringIO()
+    ut.to_csv(buf, index=False)
+    today = __import__("datetime").date.today().isoformat()
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue().encode("utf-8-sig")),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{today}_grunnlagsdata.csv"'},
+    )
+
+
+@app.get("/api/variabelnavn")
+def get_variabelnavn():
+    """Full names for the grunnlagsdata columns, and which ones are key variables."""
+    return {
+        "navn":      variabelnavn.VARIABELNAVN,
+        "grupper":   variabelnavn.NOKKELVARIABLER,
+        "gruppenavn": variabelnavn.GRUPPENAVN,
+        "id_kolonner": list(variabelnavn.ID_KOLONNER),
+    }
+
+
 @app.post("/api/upload-grunnlagsdata")
 async def upload_grunnlagsdata(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".csv"):
@@ -431,6 +498,8 @@ async def upload_grunnlagsdata(file: UploadFile = File(...)):
         df = pd.read_csv(io.StringIO(text), sep=sep)
     except Exception as e:
         raise HTTPException(400, f"Kunne ikke tolke CSV (skilletegn '{sep}'): {e}")
+
+    df = _strip_navnerad(df)
 
     # Fail loudly if the key columns didn't parse — prevents a silent no-op run.
     missing = [c for c in ("orgn", "y") if c not in df.columns]
@@ -527,7 +596,7 @@ def _fusjon_source() -> tuple[pd.DataFrame, str]:
         return _read_grunn_csv(paths[0]), f"siste kjøring ({Path(paths[0]).name})"
     raise HTTPException(
         404,
-        "Ingen grunnlagsdata å fusjonere. Klikk «Generer grunnlagsdata» først, "
+        "Ingen grunnlagsdata å fusjonere. Klikk «Rediger grunnlagsdata» først, "
         "eller last opp en fil.",
     )
 
@@ -709,6 +778,11 @@ def put_run_csv(filename: str = Query(...), run_name: str = Query(...), body: Cs
         raise HTTPException(400, "Invalid filename")
     if run_name == "__uploaded__":
         df = pd.DataFrame(body.rows)
+        # R writes row names, so the file reads back with an "Unnamed: 0"
+        # column. It is not written out again: every save would otherwise add
+        # another one ("Unnamed: 0.1", "Unnamed: 0.2", …) until the file is
+        # full of them.
+        df = df.loc[:, [c for c in df.columns if not str(c).startswith("Unnamed:")]]
         df.to_csv(_UPLOADED_GRUNN, index=False)
         return {"ok": True, "rows": len(df), "path": str(_UPLOADED_GRUNN)}
     run_dir = _run_dir_from_name(run_name)
@@ -743,6 +817,232 @@ def update_config(body: ConfigUpdate):
     cfg_path = ROOT / "config.yaml"
     cfg_path.write_text(body.content, encoding="utf-8")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# /api/kraftpris-soner  — områdepris per prissone
+# ---------------------------------------------------------------------------
+#
+# The kraftpris file holds one price per company (``pnl.rc``, kr/kWh), not one
+# per zone, so "set NO3 to 450" cannot be written directly. Zone membership is
+# derived once from the default file — each company gets the zone whose area
+# price is nearest its own — and then stored in ``kraftpris_soner_map.csv``.
+#
+# The map has to be stored rather than re-derived: writing changes both the
+# prices in the file and ``omradepriser`` in config.yaml, so a later derivation
+# would look for 381.1 in a file that now holds 450 and find nothing. The map is
+# rebuilt only when the default file is replaced (a new year).
+
+_SONE_TOLERANSE_KWH = 0.0005   # 0.5 NOK/MWh — enough to absorb rounding in the file
+_SONEKART_CSV = ROOT / "Data" / "BaseData" / "kraftpris_soner_map.csv"
+
+
+def _omradepriser_fra_config() -> dict[str, float]:
+    """``forutsetninger.omradepriser`` from config.yaml, in NOK/MWh."""
+    cfg_path = ROOT / "config.yaml"
+    if not cfg_path.exists():
+        raise HTTPException(404, "config.yaml ble ikke funnet.")
+    raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    priser = ((raw.get("forutsetninger") or {}).get("omradepriser")) or {}
+    out = {str(k): float(v) for k, v in priser.items() if v is not None}
+    if not out:
+        raise HTTPException(404, "config.yaml mangler forutsetninger.omradepriser.")
+    return out
+
+
+def _les_kraftprisfil(path: Path) -> pd.DataFrame:
+    try:
+        df = pd.read_excel(path)
+    except Exception as e:
+        raise HTTPException(500, f"Kunne ikke lese «{path.name}»: {e}")
+    mangler = [c for c in ("orgn", "pnl.rc") if c not in df.columns]
+    if mangler:
+        raise HTTPException(
+            500,
+            f"«{path.name}» mangler kolonnene {mangler} (fant {list(df.columns)[:6]}).",
+        )
+    return df
+
+
+def _sonekart() -> tuple[pd.DataFrame, dict[str, float]]:
+    """(orgn · pnl.rc · sone · basispris, base prices per zone in NOK/MWh).
+
+    ``basispris`` is the price the zone had when the map was built, and is what
+    still identifies the zone after the user has changed the price.
+    """
+    d = _INPUT_FILE_DEFS["kraftpris"]
+    standard = ROOT / d["folder"] / d["default"]
+    if not standard.exists():
+        raise HTTPException(404, f"Finner ikke standardfilen «{d['default']}».")
+
+    if _SONEKART_CSV.exists():
+        kart = pd.read_csv(_SONEKART_CSV)
+        if set(kart.columns) >= {"orgn", "pnl.rc", "sone", "basispris", "kilde"} \
+                and (kart["kilde"] == d["default"]).all():
+            basis = (kart.dropna(subset=["sone"])
+                         .groupby("sone")["basispris"].first().to_dict())
+            return kart, {str(k): float(v) for k, v in basis.items()}
+
+    priser = _omradepriser_fra_config()
+    df = _les_kraftprisfil(standard).copy()
+
+    def _sone(verdi) -> str | None:
+        v = pd.to_numeric(pd.Series([verdi]), errors="coerce").iloc[0]
+        if pd.isna(v):
+            return None
+        sone, avvik = min(
+            ((s, abs(float(v) - p / 1000.0)) for s, p in priser.items()),
+            key=lambda t: t[1],
+        )
+        return sone if avvik <= _SONE_TOLERANSE_KWH else None
+
+    df["sone"] = [_sone(v) for v in df["pnl.rc"]]
+    df["basispris"] = [priser.get(s) if isinstance(s, str) else None for s in df["sone"]]
+    df["kilde"] = d["default"]
+    try:
+        _SONEKART_CSV.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(_SONEKART_CSV, index=False)
+    except OSError as exc:  # read-only mount — the map is then derived each time
+        logger.warning("Kunne ikke lagre sonekartet %s: %s", _SONEKART_CSV, exc)
+    return df, priser
+
+
+def _soner_naa() -> tuple[pd.DataFrame, list[dict], str, bool]:
+    """(zone map, one row per zone with the price in force, filename, overridden)."""
+    kart, standardpriser = _sonekart()
+    aktiv_path, aktiv_navn, er_overstyrt = _resolve_input_file("kraftpris")
+    aktiv = _les_kraftprisfil(aktiv_path).set_index("orgn")["pnl.rc"]
+
+    soner = []
+    for sone, basispris in sorted(standardpriser.items()):
+        medlemmer = kart.loc[kart["sone"] == sone, "orgn"]
+        naa = pd.to_numeric(aktiv.reindex(medlemmer).dropna(), errors="coerce").dropna()
+        # One number per zone assumes every member shares a price. After a
+        # hand-edited upload they need not, so say so rather than show an
+        # average no company actually has.
+        unike = sorted({round(float(v) * 1000.0, 4) for v in naa})
+        soner.append({
+            "sone":          sone,
+            "pris":          unike[0] if len(unike) == 1 else basispris,
+            "basispris":     basispris,
+            "n_selskaper":   int(len(medlemmer)),
+            "blandet":       len(unike) > 1,
+        })
+    return kart, soner, aktiv_navn, er_overstyrt
+
+
+@app.get("/api/kraftpris-soner")
+def get_kraftpris_soner():
+    """Area price per price zone, with company counts and the price in force."""
+    kart, soner, aktiv_navn, er_overstyrt = _soner_naa()
+    return {
+        "soner":       soner,
+        "filnavn":     aktiv_navn,
+        "overstyrt":   er_overstyrt,
+        "uten_sone":   int(kart["sone"].isna().sum()),
+        "enhet":       "NOK/MWh",
+    }
+
+
+@app.put("/api/kraftpris-soner")
+def put_kraftpris_soner(body: SonepriserRequest):
+    """Set the area price for one or more zones.
+
+    Writes both places the price lives: ``kraftpris_override.xlsx``, which the
+    model actually computes on, and ``forutsetninger.omradepriser`` in
+    config.yaml, which the grunnlagsdata validation and the merge weighting
+    read. Without the second step, a new price outside the old band would be
+    flagged as impossible.
+    """
+    kart, soner, _, _ = _soner_naa()
+    gjeldende = {s["sone"]: float(s["pris"]) for s in soner}
+    ukjente = [s for s in body.priser if s not in gjeldende]
+    if ukjente:
+        raise HTTPException(400, f"Ukjente prissoner: {ukjente}. Kjente: {sorted(gjeldende)}.")
+    for sone, pris in body.priser.items():
+        if not math.isfinite(pris) or pris <= 0:
+            raise HTTPException(400, f"Prisen for {sone} må være et positivt tall (fikk {pris}).")
+
+    # Start from the prices in force, not the base prices: a change to NO1
+    # would otherwise reset NO3 to where it started.
+    nye = {**gjeldende, **{s: float(p) for s, p in body.priser.items()}}
+
+    # Companies without a zone keep their price from the active file.
+    aktiv_path, _, _ = _resolve_input_file("kraftpris")
+    aktiv = _les_kraftprisfil(aktiv_path).set_index("orgn")["pnl.rc"]
+
+    ut = kart[["orgn", "pnl.rc", "sone"]].copy()
+    ut["pnl.rc"] = [
+        nye[s] / 1000.0 if isinstance(s, str) and s in nye
+        else float(aktiv.get(o, v))
+        for o, v, s in zip(ut["orgn"], ut["pnl.rc"], ut["sone"])
+    ]
+    ut = ut.drop(columns=["sone"])
+
+    d = _INPUT_FILE_DEFS["kraftpris"]
+    dest = ROOT / d["folder"] / d["override"]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.stem + ".tmp.xlsx")
+    try:
+        with pd.ExcelWriter(tmp, engine="openpyxl") as writer:
+            ut.to_excel(writer, index=False, sheet_name="Ark1")
+        tmp.replace(dest)
+    except Exception as e:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(500, f"Kunne ikke skrive «{d['override']}»: {e}")
+
+    # Only the zones the user actually changed are written to config.yaml.
+    # Writing all of them would replace the rounded values there with the
+    # file's exact ones, producing a diff on zones nobody touched.
+    _skriv_omradepriser({s: float(p) for s, p in body.priser.items()})
+
+    endret = int(kart["sone"].isin(body.priser.keys()).sum())
+    return {"ok": True, "filnavn": d["override"], "selskaper_endret": endret, "priser": nye}
+
+
+@app.delete("/api/kraftpris-soner")
+def delete_kraftpris_soner():
+    """Remove the price override and put the area prices in config.yaml back.
+
+    Both have to go back together. Deleting only the override file would leave
+    ``omradepriser`` on the changed price, and the band the grunnlagsdata
+    validation measures against would no longer match the prices the run uses.
+    """
+    _, basispriser = _sonekart()
+    d = _INPUT_FILE_DEFS["kraftpris"]
+    override = ROOT / d["folder"] / d["override"]
+    fantes = override.exists()
+    if fantes:
+        override.unlink()
+    _skriv_omradepriser(basispriser)
+    return {"ok": True, "fjernet": fantes, "priser": basispriser}
+
+
+def _skriv_omradepriser(priser: dict[str, float]) -> None:
+    """Update the values under ``omradepriser:`` in config.yaml, line by line.
+
+    Line editing rather than yaml.safe_dump: a full round-trip would rewrite the
+    whole file, including keys this function has no business touching.
+    """
+    cfg_path = ROOT / "config.yaml"
+    linjer = cfg_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    start = next((i for i, l in enumerate(linjer) if l.strip() == "omradepriser:"), None)
+    if start is None:
+        raise HTTPException(500, "Fant ikke «omradepriser:» i config.yaml.")
+    innrykk = len(linjer[start]) - len(linjer[start].lstrip())
+    i = start + 1
+    while i < len(linjer):
+        l = linjer[i]
+        if not l.strip():
+            i += 1
+            continue
+        if (len(l) - len(l.lstrip())) <= innrykk:
+            break
+        m = re.match(r"^(\s*)([A-Za-z0-9_]+)\s*:\s*.*$", l.rstrip())
+        if m and m.group(2) in priser:
+            linjer[i] = f"{m.group(1)}{m.group(2)}: {priser[m.group(2)]:g}\n"
+        i += 1
+    cfg_path.write_text("".join(linjer), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -999,27 +1299,10 @@ def run_prognose(body: PrognoseRequest):
         raise HTTPException(500, str(e))
 
 
-# ---------------------------------------------------------------------------
-# /api/kostnader  — cost breakdown table (RME format)
-# ---------------------------------------------------------------------------
-
-@app.get("/api/kostnader")
-def get_kostnader(orgn: int | None = Query(default=None), run_name: str | None = Query(default=None)):
-    grunn_csv = _resolve_grunnlagsdata(run_name)
-    if not grunn_csv:
-        raise HTTPException(404, "Ingen resultater funnet.")
-    try:
-        from kostnader import grunnlagsdata_to_rme, _load_nve_id_map  # noqa: PLC0415
-        company_ids = None
-        if orgn is not None:
-            id_map = _load_nve_id_map(grunn_csv)
-            nve_id = id_map.get(orgn, orgn)
-            company_ids = [nve_id]
-        df = grunnlagsdata_to_rme(grunn_csv, company_ids=company_ids)
-        df.columns = [str(c) for c in df.columns]
-        return {"table": _df_to_records(df)}
-    except Exception as e:
-        raise HTTPException(500, str(e))
+# The Kostnader tab is gone: the central variables are now edited straight in
+# the RME tab (/api/run-csv against grunnlagsdata), and the RME reporting table
+# never got further than being displayed. `kostnader.py` is still a standalone
+# library with its own CLI for anyone who wants the whole table.
 
 
 # ---------------------------------------------------------------------------

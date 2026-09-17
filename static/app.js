@@ -20,94 +20,9 @@ const IR_COMPACT_COLS = [
   'BFV',
   'AKG (inkl 1 % arbeids-kapital)',
   'Kraftpris kr/MWh',
+  'Frontselskap D-nett',
+  'Frontselskap R-nett',
 ];
-
-// ── CSV column label mappings ────────────────
-const CSV_COL_LABELS = {
-  // identifiers
-  id:                'ID',
-  orgn:              'Organisasjonsnr',
-  y:                 'År',
-  comp:              'Selskap',
-  // LD FHA outputs
-  fha_ld_TOTXDEA:    'LD Total kostnad ekskl. nettap (1000 kr)',
-  fha_ld_sub:        'LD Abonnenter',
-  fha_ld_hv:         'LD Høyspentnett (km)',
-  fha_ld_ss:         'LD Lavspentnett (km)',
-  // RD FHA outputs
-  fha_rd_TOTXDEA:    'RD Total kostnad ekskl. nettap (1000 kr)',
-  'fha_rd_wv.ol':    'RD Vekt luftlinjer',
-  'fha_rd_wv.uc':    'RD Vekt jordkabler',
-  'fha_rd_wv.sc':    'RD Vekt sjøkabler',
-  'fha_rd_wv.ss':    'RD Vekt lavspentnett',
-  // LD grunnlagsdata
-  ld_OPEXxS:         'LD OPEX ekskl. lønn (1000 kr)',
-  ld_sal:            'LD Lønnskost (1000 kr)',
-  'ld_sal.cap':      'LD Aktivert lønn (1000 kr)',
-  ld_pens:           'LD Pensjonskost (1000 kr)',
-  'ld_pens.eq':      'LD Pensjon egenkapital (1000 kr)',
-  ld_impl:           'LD Pensjon impl. (1000 kr)',
-  ld_391:            'LD §391 (1000 kr)',
-  ld_elhub:          'LD Elhub (1000 kr)',
-  ld_usla:           'LD Utestående saldo (1000 kr)',
-  'ld_bv.sf':        'LD BV selvfinansiert (1000 kr)',
-  'ld_dep.sf':       'LD AVS selvfinansiert (1000 kr)',
-  'ld_bv.gf':        'LD BV gjennomfinansiert (1000 kr)',
-  'ld_dep.gf':       'LD AVS gjennomfinansiert (1000 kr)',
-  ld_cens:           'LD Nettleie (1000 kr)',
-  ld_nl:             'LD Nettap (1000 kr)',
-  ld_sub:            'LD Abonnenter',
-  ld_hvoh:           'LD Høyspentnett luftlinjer (km)',
-  ld_hvug:           'LD Høyspentnett jordkabler (km)',
-  ld_hvsc:           'LD Høyspentnett sjøkabler (km)',
-  ld_hv:             'LD Høyspentnett totalt (km)',
-  ld_ss:             'LD Lavspentnett (km)',
-  // RD grunnlagsdata
-  rd_OPEXxS:         'RD OPEX ekskl. lønn (1000 kr)',
-  rd_sal:            'RD Lønnskost (1000 kr)',
-  'rd_sal.cap':      'RD Aktivert lønn (1000 kr)',
-  rd_pens:           'RD Pensjonskost (1000 kr)',
-  'rd_pens.eq':      'RD Pensjon egenkapital (1000 kr)',
-  rd_impl:           'RD Pensjon impl. (1000 kr)',
-  rd_391:            'RD §391 (1000 kr)',
-  rd_elhub:          'RD Elhub (1000 kr)',
-  rd_cga:            'RD CGA (1000 kr)',
-  rd_cga_tidl:       'RD CGA tidligere år (1000 kr)',
-  rd_coord:          'RD Koordineringskost (1000 kr)',
-  rd_usla:           'RD Utestående saldo (1000 kr)',
-  'rd_bv.sf':        'RD BV selvfinansiert (1000 kr)',
-  'rd_dep.sf':       'RD AVS selvfinansiert (1000 kr)',
-  'rd_bv.gf':        'RD BV gjennomfinansiert (1000 kr)',
-  'rd_dep.gf':       'RD AVS gjennomfinansiert (1000 kr)',
-  rd_cens:           'RD Nettleie (1000 kr)',
-  rd_nl:             'RD Nettap (1000 kr)',
-  'rd_wv.ol':        'RD Vekt luftlinjer',
-  'rd_wv.uc':        'RD Vekt jordkabler',
-  'rd_wv.sc':        'RD Vekt sjøkabler',
-  'rd_wv.ss':        'RD Vekt lavspentnett',
-  // totaler
-  t_OPEXxS:         'Totalt OPEX ekskl. lønn (1000 kr)',
-  t_sal:             'Totalt lønn (1000 kr)',
-  t_cens:            'Totalt nettleie (1000 kr)',
-  't_bv.sf':         'Totalt BV selvfinansiert (1000 kr)',
-  't_dep.sf':        'Totalt AVS selvfinansiert (1000 kr)',
-  // z-variabler
-  ldz_salt:          'Z: Saltholdighet',
-  ldz_coast_wind:    'Z: Kystv ind',
-  ldz_water:         'Z: Vassdrag',
-  ldz_incline:       'Z: Terrenghelning',
-  ldz_prod:          'Z: Produksjon',
-  ldz_snow_trees:    'Z: Snø/tre',
-  ldz_forest_broadleaf: 'Z: Løvskog',
-  ldz_snowdrift:     'Z: Snøfokk',
-  ldz_snow_400:      'Z: Snø 400m',
-  ldz_wind_99:       'Z: Vind 99-pst',
-  ldz_frosthours:    'Z: Frosttimer',
-  ldz_forest_mixed_conf: 'Z: Blandingsskog',
-  ldz_mgc:           'Z: MGC',
-  'ap.t_2':          'Avkastningsparameter t-2',
-  'pnl.rc':          'PnL referansekost',
-};
 
 // ── Plotly base layout defaults ──────────────
 const BASE_LAYOUT = {
@@ -132,8 +47,6 @@ function dashboard() {
     navItems: [
       { id: 'rme',      label: 'Dagens RME modell',     icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>' },
       { id: 'prognose', label: 'Prognose',              icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>' },
-      { id: 'kostnader',label: 'Kostnader',              icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>' },
-      { id: 'analyse',  label: 'Analyse',                icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 6a1 1 0 011-1h.5a1 1 0 011 1v4.5a1 1 0 01-1 1H9a1 1 0 01-1-1V6zm4.5 3.5a1 1 0 011 1V14a1 1 0 01-1 1H12a1 1 0 01-1-1v-3.5a1 1 0 011-1h.5z" clip-rule="evenodd"/></svg>' },
       { id: 'frontier', label: 'Frontselskapsanalyse',   icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>' },
       { id: 'elasticities', label: 'Oppgaveelastisiteter', icon: '<svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>' },
     ],
@@ -147,7 +60,7 @@ function dashboard() {
     availableRuns: [],  // [{name, complete}] populated from /api/runs
     // Why the run list is empty. Only set when /api/runs itself failed, i.e.
     // the server never answered — kept apart from "no runs yet" because the
-    // fix is to start the app, not to click Start in Steg 1 (which would fail
+    // fix is to start the app, not to click Start in the RME tab (which would fail
     // the same way).
     runsError:    '',
 
@@ -164,13 +77,15 @@ function dashboard() {
     irMeta:          null,
     irExpanded:      false,
 
-    // Analyse — KPI-panel per selskap og år (etter inntektsrammeanalysen)
+    // Analysis data. The old Analyse tab is split in two: the single-year view
+    // (`data`) belongs with the results in the RME tab, while the time series
+    // (`ts`) and the merger (`fus`) belong under Prognose. The state still sits
+    // together here — it is the same numbers for the same company.
     anal: {
       loading: false,
       orgn:    '',
       aar:     2027,
       data:    null,
-      visning: 'aar',   // 'aar' | 'tidsserie' | 'fusjon'
       ts:      null,
       fus: {
         orgn_b: '',
@@ -230,25 +145,43 @@ function dashboard() {
       rho: 0.7, avs: 4.0,
       mergeYr: null, synergyPct: 0, oneOff: 0,
       forutsetninger: null,   // loaded from /api/forutsetninger, editable by user
+      // Which of the three forecast views is showing. «Flerår» and «Fusjon»
+      // came here from the old Analyse tab — both project over the forecast
+      // period, so they belong under Prognose rather than beside it.
+      visning: 'prognose',    // 'prognose' | 'tidsserie' | 'fusjon'
     },
 
-    /* ── Tab 3: Kostnader ────────────────── */
-    kost: { orgn: '', table: [] },
-    kostColumns: [],
+    /* ── Grunnlagsdata-editor (RME-fanen) ── */
+    // Replaces both the old «Rediger CSV-filer» box and the Kostnader tab: the
+    // same file, but only the key variables — the costs and tasks the model
+    // measures on — with full names above the columns instead of the R
+    // abbreviations. The rest is still edited in the file (the ⬇ button).
+    grunnEdit: {
+      open:      false,
+      loading:   false,
+      saving:    false,
+      dirty:     false,
+      error:     '',
+      gruppe:    'kostnader',
+      orgn:      '',      // '' = every company
+      aar:       '',      // set to the last year on load
+      columns:   [],      // every column in the file
+      rows:      [],      // every row in the file — edits land on these
+      focusCell: '',
+    },
+    // Full variable names from /api/variabelnavn. Empty until the call answers,
+    // and the column headers then fall back on the column name itself.
+    colLabels:  {},
+    colGroups:  { kostnader: [], oppgaver: [], priser: [] },
+    groupNames: { kostnader: 'Kostnader', oppgaver: 'Oppgaver', priser: 'Områdepriser' },
+    idCols:     ['orgn', 'y', 'comp'],
 
-    /* ── CSV editor (RME tab) ────────────── */
-    csvEdit: {
-      loading:        false,
-      saving:         false,
-      file:           '',
-      availableFiles: [],
-      // Why the file list is empty — «Last inn» is gated on csvEdit.file.
-      filesError:     '',
-      columns:        [],
-      rows:           [],
-      dirty:          false,
-      runName:        '',
-      focusCell:      '',
+    /* ── Kraftpris per prissone ──────────── */
+    soner: {
+      open: false, loading: false, saving: false,
+      rader: [], filnavn: '', overstyrt: false, utenSone: 0,
+      utkast: {},          // {zone: price} — the user's unsaved numbers
+      error: '',
     },
 
     /* ── Tab 5: Task elasticities ──────────── */
@@ -302,6 +235,16 @@ function dashboard() {
       await this.loadForutsetninger();
       await this.initGrunnlagsStatus();
       await this.initInputFiles();
+      await this.loadVariabelnavn();
+    },
+
+    // The columns the results table shows, in one place. Kept here rather than
+    // as two identical lists in the template — those drifted apart the last
+    // time a column was added.
+    irVisteKolonner() {
+      return this.irExpanded
+        ? this.irColumns
+        : this.irColumns.filter(c => IR_COMPACT_COLS.includes(c));
     },
 
     // ─── Helpers ─────────────────────────────
@@ -344,7 +287,7 @@ function dashboard() {
     // Returns { msg, fatal } — fatal also earns the red top-bar badge.
     _emptyRunReason(err, what) {
       if (this.runsError) {
-        // The server never answered: Start i Steg 1 would fail too.
+        // The server never answered: Start in the RME tab would fail too.
         return {
           msg: `Får ikke kontakt med serveren (${this.runsError}). Sjekk at appen kjører, og prøv igjen.`,
           fatal: true,
@@ -352,7 +295,7 @@ function dashboard() {
       }
       if (!this.selectedRun && !this.latestRun) {
         // No run yet is the normal cold-start state, not a fault.
-        return { msg: 'Ingen kjøring funnet ennå. Klikk Start i Steg 1 for å kjøre modellen.', fatal: false };
+        return { msg: 'Ingen kjøring funnet ennå. Klikk Start i «Dagens RME modell» for å kjøre modellen.', fatal: false };
       }
       // The run exists but can't be read — typically missing
       // «Til inntektsrammeark.xlsx», which /api/runs does not check for, so the
@@ -360,7 +303,7 @@ function dashboard() {
       // help; an older run or a fresh pipeline run can.
       const run = this.selectedRun || this.latestRun;
       return {
-        msg: `Kunne ikke laste ${what} fra «${run}»: ${err.message} — velg en tidligere kjøring med ‹ i kjøringsvelgeren, eller kjør modellen på nytt i Steg 1.`,
+        msg: `Kunne ikke laste ${what} fra «${run}»: ${err.message} — velg en tidligere kjøring med ‹ i kjøringsvelgeren, eller kjør modellen på nytt.`,
         fatal: true,
       };
     },
@@ -417,7 +360,6 @@ function dashboard() {
           this.loadIrTable();
           this.loadDeaCompanies();
           this.loadProgCompanies();
-          this.loadRunCsvFiles();
         }
         return;
       }
@@ -434,7 +376,6 @@ function dashboard() {
         this.loadIrTable();
         this.loadDeaCompanies();
         this.loadProgCompanies();
-        this.loadRunCsvFiles();
       }
     },
 
@@ -627,10 +568,9 @@ function dashboard() {
         this.grunnlag = { active: true, fileName: data.filename, size: data.size, uploading: false, dragOver: false };
         this.grunnVarsel = { funn: [], delvis: [], kilde: '' };
         this.fusjon.resultat = null;
-        this.showToast('Grunnlagsdata generert – tilgjengelig i Rediger CSV-filer');
-        // Load it into the CSV editor automatically
-        this.csvEdit.file = '';
-        await this.loadRunCsvFiles('__uploaded__');
+        this.showToast('Grunnlagsdata generert');
+        // Straight into the editor: generating it is never the goal in itself.
+        await this.lastGrunnEdit();
         if (this.fusjon.open) await this.loadFusjonSelskaper();
       } catch (e) {
         this.globalError = e.message;
@@ -724,9 +664,7 @@ function dashboard() {
         const p = new URLSearchParams({ orgn: String(a.orgn), aar: String(a.aar) });
         if (this.selectedRun) p.set('run_name', this.selectedRun);
         a.data = await this.api('GET', `/api/analyse?${p.toString()}`);
-        a.ts = null;   // tidsserien gjelder ett selskap — hentes på nytt ved behov
-        if (a.visning === 'tidsserie') await this.loadTidsserie();
-        else this.$nextTick(() => this.renderAnalyseDonuts());
+        this.$nextTick(() => this.renderAnalyseDonuts());
       } catch (e) {
         a.data = null;
         this.globalError = e.message;
@@ -735,16 +673,43 @@ function dashboard() {
       }
     },
 
-    // Switch between the single-year view and the time series
-    async settAnalyseVisning(v) {
-      this.anal.visning = v;
+    // The company picker in the Prognose tab drives all three views, so a
+    // change has to drop both the forecast and the analysis data — the
+    // multi-year curve would otherwise stay on the previous company under the
+    // new name.
+    byttProgSelskap() {
+      this.prog.result   = null;
+      this.anal.orgn     = this.prog.orgn;
+      this.anal.ts       = null;
+      this.anal.fus.data = null;
+      if (this.prog.visning === 'tidsserie' && this.prog.orgn) this.loadTidsserie();
+    },
+
+    // «Beregn flerår». Syncs the company first: loadTidsserie reads anal.orgn,
+    // and the button sits under the forecast's own company picker.
+    beregnFlerAar() {
+      this.anal.orgn = this.prog.orgn;
+      return this.loadTidsserie();
+    },
+
+    // The Prognose tab's three views. Multi-year and merger both compute on a
+    // single company, the same as the forecast, so the picker in the left panel
+    // drives all three — which is why prog.orgn is mirrored into anal.orgn.
+    async settProgVisning(v) {
+      this.prog.visning = v;
+      if (String(this.anal.orgn) !== String(this.prog.orgn)) {
+        this.anal.orgn = this.prog.orgn;
+        this.anal.ts   = null;       // the time series is per company
+        this.anal.fus.data = null;
+      }
       if (v === 'tidsserie') {
+        if (!this.anal.orgn) return;
         if (!this.anal.ts) await this.loadTidsserie();
         else this.$nextTick(() => this.renderTidsserie());
       } else if (v === 'fusjon') {
         if (this.anal.fus.data) this.$nextTick(() => this.renderFusjon());
       } else {
-        this.$nextTick(() => this.renderAnalyseDonuts());
+        this.$nextTick(() => this.renderPrognoseChart());
       }
     },
 
@@ -1460,96 +1425,172 @@ function dashboard() {
 
     // ─── Tab 3 ───────────────────────────────
 
-    // ── CSV editor ───────────────────────────
-    async loadRunCsvFiles(runOverride) {
-      this.csvEdit.filesError = '';
-      const run = runOverride ?? this.selectedRun ?? '';
-      const qs  = run ? `?run_name=${encodeURIComponent(run)}` : '';
+    // ── Grunnlagsdata editor ─────────────────
+
+    // Full variable names and the key-variable groups. One call, at startup:
+    // the map is static, and the column headers need it before the first click.
+    async loadVariabelnavn() {
       try {
-        const data = await this.api('GET', `/api/run-csv/files${qs}`);
-        const runTag = data.run_dir ?? run ?? '';
-        const files  = (data.files ?? []).map(f => ({ ...f, runTag }));
-        // When loading __uploaded__, append/replace that entry; keep run files
-        if (runOverride === '__uploaded__') {
-          const kept = this.csvEdit.availableFiles.filter(f => f.runTag !== '__uploaded__');
-          this.csvEdit.availableFiles = [...kept, ...files];
-          if (files.length) this.csvEdit.file = files[0].filename;
-        } else {
-          this.csvEdit.availableFiles = files;
-          const names = files.map(f => f.filename);
-          if (!names.includes(this.csvEdit.file)) {
-            this.csvEdit.file = names[0] ?? '';
-          }
+        const d = await this.api('GET', '/api/variabelnavn');
+        this.colLabels  = d.navn ?? {};
+        this.colGroups  = d.grupper ?? this.colGroups;
+        this.groupNames = d.gruppenavn ?? this.groupNames;
+        this.idCols     = d.id_kolonner ?? this.idCols;
+      } catch (_) {
+        // Falls back on the column name itself — the panel works, it just
+        // shows the abbreviations. Not worth an error badge at the top.
+      }
+    },
+
+    // The sidebar button. With no grunnlagsdata there is nothing to edit, so it
+    // generates first — the old «Generer grunnlagsdata» step, folded into the
+    // action the user is actually after.
+    async apneGrunnEdit() {
+      this.grunnEdit.open = true;
+      if (!this.grunnlag.active) await this.generateGrunnlagsdata();
+      if (this.grunnlag.active && !this.grunnEdit.rows.length) await this.lastGrunnEdit();
+    },
+
+    async lastGrunnEdit() {
+      this.grunnEdit.loading = true;
+      this.grunnEdit.error   = '';
+      this.grunnEdit.dirty   = false;
+      try {
+        const d = await this.api('GET', '/api/run-csv?filename=grunnlagsdata_uploaded.csv&run_name=__uploaded__');
+        this.grunnEdit.columns = (d.columns ?? []).filter(c => !String(c).startsWith('Unnamed:'));
+        this.grunnEdit.rows    = d.rows ?? [];
+        // Last year first: the cost-base year is the one actually edited, and
+        // every year at once is 400+ rows of input fields.
+        const aar = this.grunnEditAar();
+        if (!aar.includes(this.grunnEdit.aar)) this.grunnEdit.aar = aar.at(-1) ?? '';
+      } catch (e) {
+        this.grunnEdit.rows  = [];
+        this.grunnEdit.error = e.message;
+      } finally {
+        this.grunnEdit.loading = false;
+      }
+    },
+
+    async lagreGrunnEdit() {
+      if (!this.grunnEdit.rows.length) return;
+      this.grunnEdit.saving = true;
+      try {
+        await this.api('PUT', '/api/run-csv?filename=grunnlagsdata_uploaded.csv&run_name=__uploaded__',
+                       { rows: this.grunnEdit.rows });
+        this.grunnEdit.dirty = false;
+        this.showToast('Grunnlagsdata lagret – klikk Start for å kjøre modellen');
+      } catch (e) {
+        this.globalError = e.message;
+      } finally {
+        this.grunnEdit.saving = false;
+      }
+    },
+
+    // The file as it stands, plus a row of full variable names — see
+    // /api/grunnlagsdata/download. The row is stripped again on upload.
+    downloadGrunnlagsdata() {
+      window.location.href = `/api/grunnlagsdata/download${this._runQs()}`;
+    },
+
+    // The columns the panel shows: the identifiers, then the chosen group.
+    // Filtered against the file, so a missing column is not an empty column.
+    grunnEditKolonner() {
+      const finnes = new Set(this.grunnEdit.columns);
+      const gruppe = this.colGroups[this.grunnEdit.gruppe] ?? [];
+      return [...this.idCols, ...gruppe].filter(c => finnes.has(c));
+    },
+
+    grunnEditAar() {
+      return [...new Set(this.grunnEdit.rows.map(r => r.y))]
+        .filter(y => y !== null && y !== undefined)
+        .sort((a, b) => a - b);
+    },
+
+    grunnEditSelskaper() {
+      const sett = new Map();
+      for (const r of this.grunnEdit.rows) {
+        if (r.orgn !== null && r.orgn !== undefined && !sett.has(r.orgn)) {
+          sett.set(r.orgn, r.comp ?? String(r.orgn));
         }
+      }
+      return [...sett].map(([orgn, comp]) => ({ orgn, comp }))
+                      .sort((a, b) => String(a.comp).localeCompare(String(b.comp), 'nb'));
+    },
+
+    // The rows on screen. The objects are the ones in grunnEdit.rows, so an
+    // edit made inside a filtered selection lands in what gets saved.
+    grunnEditRader() {
+      const { orgn, aar } = this.grunnEdit;
+      return this.grunnEdit.rows.filter(r =>
+        (aar === '' || String(r.y) === String(aar)) &&
+        (orgn === '' || String(r.orgn) === String(orgn)));
+    },
+
+    colLabel(col) {
+      return this.colLabels[col] ?? col;
+    },
+
+    // ── Power price per price zone ───────────
+
+    async toggleSoner() {
+      this.soner.open = !this.soner.open;
+      if (this.soner.open && !this.soner.rader.length) await this.loadSoner();
+    },
+
+    async loadSoner() {
+      this.soner.loading = true;
+      this.soner.error   = '';
+      try {
+        const d = await this.api('GET', '/api/kraftpris-soner');
+        this.soner.rader     = d.soner ?? [];
+        this.soner.filnavn   = d.filnavn ?? '';
+        this.soner.overstyrt = !!d.overstyrt;
+        this.soner.utenSone  = d.uten_sone ?? 0;
+        this.soner.utkast    = Object.fromEntries(this.soner.rader.map(s => [s.sone, s.pris]));
       } catch (e) {
-        // Gated the same way as everything else fed from a run: an empty file
-        // dropdown greys «Last inn», so say why instead of dropping the error.
-        if (runOverride !== '__uploaded__') this.csvEdit.availableFiles = [];
-        const { msg, fatal } = this._emptyRunReason(e, 'filene i kjøringen');
-        this.csvEdit.filesError = msg;
-        if (fatal) this.globalError = msg;
-      }
-    },
-
-    async loadRunCsv() {
-      if (!this.csvEdit.file) return;
-      this.csvEdit.loading = true;
-      this.csvEdit.dirty   = false;
-      const entry = this.csvEdit.availableFiles.find(f => f.filename === this.csvEdit.file);
-      const run = entry?.runTag || this.selectedRun || '';
-      const qs  = `?filename=${encodeURIComponent(this.csvEdit.file)}` + (run ? `&run_name=${encodeURIComponent(run)}` : '');
-      try {
-        const data = await this.api('GET', `/api/run-csv${qs}`);
-        this.csvEdit.columns = data.columns;
-        this.csvEdit.rows    = data.rows;
-        this.csvEdit.runName = data.run_dir;
-      } catch(e) {
-        this.globalError = e.message;
+        this.soner.rader = [];
+        this.soner.error = e.message;
       } finally {
-        this.csvEdit.loading = false;
+        this.soner.loading = false;
       }
     },
 
-    async saveRunCsv() {
-      if (!this.csvEdit.runName) return;
-      this.csvEdit.saving = true;
-      const entry  = this.csvEdit.availableFiles.find(f => f.filename === this.csvEdit.file);
-      const runTag = entry?.runTag || this.csvEdit.runName || '';
-      const qs = `?filename=${encodeURIComponent(this.csvEdit.file)}&run_name=${encodeURIComponent(runTag)}`;
+    // True when at least one price differs from what the file holds. «Bruk
+    // priser» is gated on this, so unchanged numbers are never written out.
+    sonerEndret() {
+      return this.soner.rader.some(s => Number(this.soner.utkast[s.sone]) !== Number(s.pris));
+    },
+
+    async lagreSoner() {
+      const endret = Object.fromEntries(this.soner.rader
+        .filter(s => Number(this.soner.utkast[s.sone]) !== Number(s.pris))
+        .map(s => [s.sone, Number(this.soner.utkast[s.sone])]));
+      if (!Object.keys(endret).length) return;
+      this.soner.saving = true;
+      this.soner.error  = '';
       try {
-        await this.api('PUT', `/api/run-csv${qs}`, { rows: this.csvEdit.rows });
-        this.csvEdit.dirty = false;
-        this.showToast('CSV lagret ✓');
-      } catch(e) {
-        this.globalError = e.message;
-      } finally {
-        this.csvEdit.saving = false;
-      }
-    },
-
-    csvColLabel(col) {
-      return CSV_COL_LABELS[col] ?? col;
-    },
-
-    csvCompanyName(id) {
-      const all = [...(this.progCompanies || []), ...(this.deaCompanies || [])];
-      const match = all.find(c => String(c.id) === String(id));
-      return match ? match.name : null;
-    },
-
-    async loadKostnader() {
-      this.loading = true;
-      this.globalError = '';
-      try {
-        let path = `/api/kostnader${this._runQs()}`;
-        if (this.kost.orgn) path += (this._runQs() ? '&' : '?') + `orgn=${this.kost.orgn}`;
-        const data = await this.api('GET', path);
-        this.kost.table  = data.table ?? [];
-        this.kostColumns = this.kost.table.length ? Object.keys(this.kost.table[0]) : [];
+        const d = await this.api('PUT', '/api/kraftpris-soner', { priser: endret });
+        this.showToast(`Kraftpris satt for ${Object.keys(endret).join(', ')} – ${d.selskaper_endret} selskap. Klikk Start.`);
+        await this.loadSoner();
+        await this.initInputFiles();
       } catch (e) {
-        this.globalError = e.message;
+        this.soner.error = e.message;
       } finally {
-        this.loading = false;
+        this.soner.saving = false;
+      }
+    },
+
+    async tilbakestillSoner() {
+      this.soner.saving = true;
+      try {
+        await this.api('DELETE', '/api/kraftpris-soner');
+        await this.loadSoner();
+        await this.initInputFiles();
+        this.showToast('Kraftprisoverstyringen fjernet – standardfilen er tilbake');
+      } catch (e) {
+        this.soner.error = e.message;
+      } finally {
+        this.soner.saving = false;
       }
     },
 

@@ -31,11 +31,65 @@ Når containeren er klar, åpne:
 
 ## Bruke appen
 
-Appen er delt i tre steg – naviger med knappene øverst.
+Appen har fire moduler i menyen til venstre: **Dagens RME modell**, **Prognose**,
+**Frontselskapsanalyse** og **Oppgaveelastisiteter**. De to første er de som
+brukes til daglig; de to siste er verktøy for enkeltanalyser.
 
-### Steg 1 – Dagens RME modell
-Klikk **Kjør RME Modell** for å kjøre modellen. Resultater lagres automatisk i `Results/`.
-Når kjøringen er ferdig kan du laste ned tabellen som CSV eller Excel.
+### Dagens RME modell
+Klikk **Start** for å kjøre modellen. Resultater lagres automatisk i `Results/`.
+Når kjøringen er ferdig kan du laste ned tabellen som CSV.
+
+Resultatsiden viser, i denne rekkefølgen:
+
+1. **Nøkkeltall** for kjøringen – antall selskaper, sum kostnadsgrunnlag, sum
+   inntektsramme etter kalibrering.
+2. **Analyse for ett selskap og ett år** – inntektsramme, avkastning på
+   nettkapital, effektivitet per trinn og frontselskap per nettnivå. Panelet er
+   beskrevet under [Analysepanelet](#analysepanelet).
+3. **Grunnlagsdata – nøkkelvariabler**, når den er åpnet (se under).
+4. **Tabellen over alle selskaper**, sortert med største inntektsramme øverst.
+
+Diagrammene står over tabellen med vilje: KPI-ene svarer på hvordan det gikk for
+ett selskap, tabellen på hvordan bransjen ser ut, og det er den rekkefølgen
+spørsmålene stilles i.
+
+#### Rediger grunnlagsdata
+Knappen **✎ Rediger grunnlagsdata** i venstrepanelet henter grunnlagsdata fra
+base-data (kjører `generate_grunnlagsdata.R` hvis det ikke ligger noe inne
+allerede) og åpner nøkkelvariablene på siden, over resultattabellen.
+
+Panelet viser tre grupper – **Kostnader**, **Oppgaver** og **Områdepriser** – og
+filtrerer på år og selskap. Det starter på siste år, som er kostnadsgrunnlagsåret.
+Hver kolonne har det fulle variabelnavnet over R-forkortelsen, slik at
+`ld_OPEXxS` også står som «LD OPEX ekskl. lønn (1000 kr)». Navnene ligger i
+`variabelnavn.py` og serveres av `/api/variabelnavn`.
+
+`orgn`, `y` og `comp` vises, men redigeres ikke: de er nøkkelen radene skrives
+tilbake på.
+
+**Lagre** skriver bare filen – klikk **Start** etterpå for å kjøre modellen med de
+nye verdiene. Skal du endre noe som ikke er en nøkkelvariabel (rammevilkår,
+totaler, DEA-utdata), bruk **⬇** ved siden av knappen: den laster ned hele filen
+som CSV, med en ekstra rad rett under overskriftene som gir det fulle navnet på
+hver variabel. Raden leses bort igjen ved opplasting, så filen kan lastes rett
+tilbake i grunnlagsdata-feltet.
+
+#### Kraftpris per prissone
+Panelet **Kraftpris per prissone** setter områdeprisen for NO1–NO5 i NOK/MWh.
+Prisen skrives til `pnl.rc` for alle selskapene i sonen, i
+`Data/BaseData/kraftpris_override.xlsx`, og samtidig til
+`forutsetninger.omradepriser` i `config.yaml` – valideringen av grunnlagsdata
+måler mot det båndet, så en ny pris utenfor det gamle ville ellers blitt flagget
+som umulig. **↺** fjerner begge deler igjen.
+
+Sonetilhørigheten utledes én gang fra standard kraftprisfil (hvert selskap får
+sonen hvis områdepris ligger nærmest selskapets pris) og lagres i
+`kraftpris_soner_map.csv`. Den må lagres, ikke utledes på nytt: skrivingen endrer
+jo nettopp prisene kartet ellers ville lett etter.
+
+Selskaper som leverer i flere prisområder har en volumvektet pris som ikke kan
+tilbakeføres til én sone. De står urørt når en sonepris endres, og panelet sier
+hvor mange det gjelder.
 
 #### Inndata for neste kjøring
 Panelet **Inndata for neste kjøring** viser de tre Excel-filene modellen leser:
@@ -105,13 +159,31 @@ Laster du opp grunnlagsdata selv, sjekkes filen ved opplasting: områdepriser m�
 innenfor `forutsetninger.omradepriser`, rammevilkårsvariabler innenfor bransjens
 intervall, og selskaper som er endret i bare noen av årene blir flagget.
 
-### Steg 2 – Prognose
-Velg selskap, juster forutsetninger og se prognosen.
-Lagre endringer med **Lagre forutsetninger**.
+### Prognose
+Velg selskap i venstrepanelet og bytt mellom tre visninger:
 
-### Analyse
-Panelet gjenskaper KPI-oppsettet fra inntektsrammeanalysen (jf. *Inntektsrammeanalyse
-2025*, s. 9) for **ett selskap og ett år**:
+| Visning | Innhold |
+|---|---|
+| **Prognose** | Framskrivningen for det valgte selskapet: nøkkeltall, diagram for inntektsramme / kostnadsgrunnlag / kostnadsnorm, diagram for effektivitet og avkastning, og nederst hele tabellen med variabler på radene og år på kolonnene |
+| **Flerår** | Utviklingen over hele prognoseperioden – se [Flerår](#flerår) |
+| **Fusjon** | Hva som skjer om selskapet slås sammen med et annet – se [Fusjon](#fusjon) |
+
+Alle tre regner på selskapet som står i velgeren, så et bytte der nullstiller alle
+tre. Forutsetningene (KPI, KPI lønn, NVE-rente, systemkraftpris) ligger i en
+utslåbar tabell nederst og kan redigeres per år.
+
+De to siste visningene lå tidligere i en egen Analyse-modul. De hører hjemme her:
+begge framskriver over prognoseperioden.
+
+Feltet **Enkel fusjonsjustering** i venstrepanelet er noe annet enn Fusjon-visningen
+— det er et påslag på kostnadene inne i selve framskrivningen, ikke en ny
+DEA-kjøring. Bruk Fusjon-visningen når du vil ha effektivitetseffekten med.
+
+<h3 id="analysepanelet">Analysepanelet</h3>
+
+Panelet ligger på resultatsiden i **Dagens RME modell** og gjenskaper KPI-oppsettet
+fra inntektsrammeanalysen (jf. *Inntektsrammeanalyse 2025*, s. 9) for **ett selskap
+og ett år**:
 
 | Element | Kilde |
 |---|---|
@@ -137,8 +209,9 @@ Tre forhold er verdt å merke seg, og panelet viser dem som merknader:
 Selskaper med manuelt overstyrt DEA-resultat (alternativ benchmarkingmodell eller
 «evalueres ikke») og selskaper utenfor DEA-utvalget merkes eksplisitt.
 
-#### Tidsserie
-Knappen **Tidsserie** øverst i panelet bytter fra ett år til utviklingen over hele
+<h3 id="flerår">Flerår</h3>
+
+Visningen **Flerår** i Prognose-modulen viser utviklingen over hele
 prognoseperioden, med fire elementer:
 
 | Element | Innhold |
@@ -161,9 +234,10 @@ Kostnadskomponentene er derimot *kategorier*, ikke nettnivåer, og bruker en ege
 validert kategorisk palett – seks skillbare kategorier får ikke plass innenfor
 blå/grønn/gul.
 
-#### Fusjon
-Knappen **Fusjon** analyserer hva som skjer dersom det valgte selskapet slås
-sammen med et annet. Effektiviteten til den sammenslåtte enheten er ikke et snitt
+<h3 id="fusjon">Fusjon</h3>
+
+Visningen **Fusjon** i Prognose-modulen analyserer hva som skjer dersom det valgte
+selskapet slås sammen med et annet. Effektiviteten til den sammenslåtte enheten er ikke et snitt
 av de to – DEA måler kostnad mot oppgavemengde, og en fusjon endrer begge – så
 **trinn-1 DEA kjøres på nytt**: kostnader og oppgaver summeres, de to selskapene
 fjernes fra referansesettet, og en ny enhet settes inn. Oppkalibreringen beregnes
@@ -194,8 +268,11 @@ Presisjonsnivå, verdt å kjenne:
   sier det eksplisitt.
 * Beregningen kjører DEA per år og per synerginivå, og tar noen sekunder.
 
-### Steg 3 – Kostnader
-Filtrer og utforsk RME-rapporteringstabellen. Last ned med CSV/Excel-knappene.
+### Frontselskapsanalyse og Oppgaveelastisiteter
+To frittstående verktøy: DEA-fronten med og uten valgte selskaper, og
+oppgaveelastisitetene (Δoppgave per MNOK) som prognosen kan bruke i stedet for
+sine egne. Begge står som de er.
+
 ---
 
 ## Stoppe appen
