@@ -31,21 +31,31 @@ import pandas as pd
 
 from inntektsramme import DEANorm, RevenueCapCalculator
 from prognose import (
-    FORECAST_YEARS,
     PrognoseCalculator,
+    basisaar,
     load_forutsetninger_from_csv,
+    prognoseaar,
 )
 
 logger = logging.getLogger(__name__)
 
-# Basisåret i inntektsrammearket (y.rc).  Prognosen "pinner" dette året til
-# arkets egne tall, slik at 2026-arket skal reprodusere RME-modellen eksakt.
-ARK_BASE_YEAR = 2026
+def ark_basisaar() -> int:
+    """Basisåret i inntektsrammearket (y.rc) for året som er valgt i appen.
 
-# Standard årsspenn for flerårsarket.  FORECAST_YEARS starter på 2025, men det
-# året er en *tilbakeskriving* (deflatert fra 2026) og ikke et modellresultat,
-# så det holdes utenfor med mindre kaller ber om det eksplisitt.
-DEFAULT_YEARS = [y for y in FORECAST_YEARS if y >= ARK_BASE_YEAR]
+    Prognosen "pinner" dette året til arkets egne tall, slik at basisårsarket
+    reproduserer RME-modellen eksakt.
+    """
+    return basisaar()
+
+
+def standard_aar() -> list[int]:
+    """Standard årsspenn for flerårsarket.
+
+    prognoseaar() starter året før basisåret, men det året er en
+    *tilbakeskriving* (deflatert fra basisåret) og ikke et modellresultat, så
+    det holdes utenfor med mindre kaller ber om det eksplisitt.
+    """
+    return [y for y in prognoseaar() if y >= ark_basisaar()]
 
 
 # ---------------------------------------------------------------------------
@@ -176,9 +186,9 @@ def _align_rente_path(forutsetninger: dict, referanserente_pct: float) -> tuple[
     på rentebanen og flytter hele banen med samme differanse.
     """
     rente = dict(forutsetninger.get("nve_rente") or {})
-    if ARK_BASE_YEAR not in rente:
+    if ark_basisaar() not in rente:
         return forutsetninger, 0.0
-    delta = referanserente_pct - rente[ARK_BASE_YEAR]
+    delta = referanserente_pct - rente[ark_basisaar()]
     out = dict(forutsetninger)
     out["nve_rente"] = {y: v + delta for y, v in rente.items()}
     return out, delta
@@ -211,7 +221,7 @@ def _nansum(s: pd.Series) -> float:
 
 def build_flerarsark(
     run_name: str | None = None,
-    config_path: str = "config.yaml",
+    config_path: str | None = None,
     forutsetninger: dict | None = None,
     dv_vekst: dict | None = None,
     rho: float | None = None,
@@ -270,11 +280,11 @@ def build_flerarsark(
         tabellen i Steg 1.  Prognosen treffer basisåret innenfor ~1 kkr uansett,
         men avrunder utdata og bruker den avrundede N100 fra config.
     years
-        Årsspenn.  None = 2026..2035 (2025 utelates, se DEFAULT_YEARS).
+        Årsspenn.  None = basisåret..2035 (året før utelates, se standard_aar).
     progress
         Valgfri callback ``fn(done, total, label)`` for framdrift.
     """
-    years = sorted(years or DEFAULT_YEARS)
+    years = sorted(years or standard_aar())
 
     # --- 1. Basisåret fra RME-modellen -------------------------------------
     rc = RevenueCapCalculator(config_path, run_name=run_name)
@@ -357,7 +367,7 @@ def build_flerarsark(
 
             # Normaliser RD-kostnadsgrunnlaget til arkets konvensjon (ekskl. nettap).
             _rd_kg_raw = float(f["RD Kostnadsgrunnlag"])
-            if int(f["År"]) == ARK_BASE_YEAR and rd_kg_pinned:
+            if int(f["År"]) == ark_basisaar() and rd_kg_pinned:
                 _rd_kg_ark = _rd_kg_raw          # allerede arkets verdi, ekskl. nettap
             else:
                 _rd_kg_ark = _rd_kg_raw - float(f["RD Nettapskostnad"])
@@ -420,10 +430,10 @@ def build_flerarsark(
         long[_c] = np.nan
 
     # Basisåret: bytt ut de framregnede verdiene med arkets egne.
-    use_ark_base = base_year_from_ark and ARK_BASE_YEAR in years
+    use_ark_base = base_year_from_ark and ark_basisaar() in years
     if use_ark_base:
         ark_base = _ark_base_year_rows(rc, etl_df, ir_df)
-        mask = long["aar"] == ARK_BASE_YEAR
+        mask = long["aar"] == ark_basisaar()
         idx = long.loc[mask, "orgn"]
         for col in ark_base.columns:
             if col in long.columns:
@@ -457,7 +467,7 @@ def build_flerarsark(
         ids = y["id"]
         n93 = n93_per_year.get(year, n93_default) / 100.0
 
-        if use_ark_base and year == ARK_BASE_YEAR:
+        if use_ark_base and year == ark_basisaar():
             # Norm og inntektsramme er allerede arkets egne tall; bruk arkets
             # kalibreringskonstant slik at 2026 blir bit-identisk med Steg 1.
             n100 = rc.cfg.sum_ir_k_per_akg

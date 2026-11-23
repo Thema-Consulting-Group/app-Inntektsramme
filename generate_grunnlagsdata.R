@@ -24,6 +24,7 @@
 
   setwd(getwd())
 
+  source("./R-script/aarsvalg.R")  # Inntektsrammeaar -> data_dir og aarsoppsett
   source("./R-script/functions_nve.R")
   Statnett_calc = FALSE  # required by 0_1_Config_Assumptions_Data.R
   source("./R-script/0_1_Config_Assumptions_Data.R")

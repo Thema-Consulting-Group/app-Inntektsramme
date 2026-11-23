@@ -11,7 +11,7 @@
         print_ld_no.rc[,c("comp", "id", "ld_RAB", "ld_DEP", "ld_nl", "ld_OPEXxS")]
         
 # LD - DSOs set to average efficiency - av.eff ####
-        ld_av.eff <- (c(753))
+        ld_av.eff <- ld_av.eff_manuelt  # Data/<aar>/aarsoppsett.R
         ld_av.eff_candidates = filter(dat, dat$ld_ss == 0, dat$ld_sub == 0,
                                       dat$ld_hv == 0, dat$ld_TOTXDEA == 0,
                                       !(dat$id %in% ld_no.rc))
@@ -31,7 +31,7 @@
         ld_ooto <- unique(append(ld_ooto.auto, ld_ooto))
 
 # RD - DSOs with no revenue cap - no.rc ####
-        rd_no.rc  <- (c(659))  
+        rd_no.rc  <- rd_no.rc_manuelt   # Data/<aar>/aarsoppsett.R
         dat$rd_no.rc.auto <- ifelse(dat$rd_RAB==0 & dat$rd_DEP==0 & dat$rd_nl==0 & dat$rd_OPEXxS==0 & dat$y==y.cb, 1, 0)
         rd_no.rc.auto <- dat[(dat$rd_no.rc.auto>0),"id"]
         rd_no.rc.auto <- as.numeric(rd_no.rc.auto)
@@ -40,7 +40,7 @@
         print_rd_no.rc[,c("comp", "id", "rd_RAB", "rd_DEP", "rd_nl", "rd_OPEXxS")]
         
 # RD - DSOs set to average efficiency - av.eff ####
-        rd_av.eff <- (c(135))  
+        rd_av.eff <- rd_av.eff_manuelt  # Data/<aar>/aarsoppsett.R
         dat$rd_wv.sum = dat$rd_wv.ol + dat$rd_wv.uc + dat$rd_wv.sc + dat$rd_wv.ss
         rd_av.eff_candidates = filter(dat, dat$rd_wv.sum == 0 | dat$rd_rab.sf == 0,
                                       !(dat$id  %in% rd_no.rc ))

@@ -37,7 +37,7 @@
         Y.cb.rd  <- round(Y.cb.rd, digits = 0)
 
 # LD - DEA calculations ####
-        write.csv(cbind(ld_EVAL$id, X.avg.ld, Y.avg.ld,X.cb.ld, Y.cb.ld), file = "./Results/ld_InputDEA.csv")
+        write.csv(cbind(ld_EVAL$id, X.avg.ld, Y.avg.ld,X.cb.ld, Y.cb.ld), file = file.path(aar_results_dir, "ld_InputDEA.csv"))
 
         # DEA with cost base year observations and peers determined by average data
         dea.cb.avg.ld = dea(X=X.cb.ld, Y=Y.cb.ld, XREF=X.avg.ld[as.character(ld_eval)], YREF=Y.avg.ld[as.character(ld_eval),], RTS="crs")
@@ -62,7 +62,7 @@
         ld_lambda.avg[is.na(ld_lambda.avg)] <- 0
 
 # RD - DEA calculations ####
-        write.csv(cbind(rd_EVAL$id, X.avg.rd, Y.avg.rd, X.cb.rd, Y.cb.rd), file = "./Results/rd_InputDEA.csv")
+        write.csv(cbind(rd_EVAL$id, X.avg.rd, Y.avg.rd, X.cb.rd, Y.cb.rd), file = file.path(aar_results_dir, "rd_InputDEA.csv"))
 
         # DEA with cost base year observations and peers determined by average data
         dea.cb.avg.rd = dea(X=X.cb.rd, Y=Y.cb.rd, XREF=X.avg.rd[as.character(rd_eval)], YREF=Y.avg.rd[as.character(rd_eval),], RTS="crs")

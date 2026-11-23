@@ -11,9 +11,11 @@ const EMERALD = '#285064';  // Charcoal (Inntektsramme + frontier ref)
 const SLATE   = '#6e8fa0';  // Blue-tinted slate
 
 // ── Compact IR table columns (collapsed view) ──
+// The revenue cap column carries the year in its name ("inntektsramme 2027"),
+// so it is matched by IR_AAR_KOLONNE rather than listed here.
+const IR_AAR_KOLONNE = /^inntektsramme \d{4}$/i;
 const IR_COMPACT_COLS = [
   'Selskap',
-  'inntektsramme 2026',
   'D&V-kostnader eks utredningskostnader',
   'Årslønn-justerte D&V-kostnader eks utredningskostnader',
   'AVS',
@@ -52,6 +54,10 @@ function dashboard() {
     ],
 
     /* ── global state ────────────────────── */
+    // Revenue cap year the server works on (Data/<år>/). Everything else -
+    // runs, input files, config - follows it, so switching reloads the page.
+    irAar:        null,
+    irAarListe:   [],
     loading:      false,
     globalError:  '',
     toast:        { msg: '', type: 'success' },
@@ -129,9 +135,9 @@ function dashboard() {
       dirty: false,
     },
     inputFiles: [
-      { key: 'irbase',    label: 'irBase (hoveddatasett)',  accept: '.xlsx,.xls', defaultName: 'irBase - Stata - 12.11.2025 09_56_56.xlsx', override: null, uploading: false, dragOver: false },
-      { key: 'kraftpris', label: 'Kraftpris',                accept: '.xlsx,.xls', defaultName: 'kraftpris2026.xlsx',                         override: null, uploading: false, dragOver: false },
-      { key: 'id',        label: 'Selskaps-ID',              accept: '.xlsx,.xls', defaultName: 'id_ir_26.xlsx',                              override: null, uploading: false, dragOver: false },
+      { key: 'irbase',    label: 'irBase (hoveddatasett)',  accept: '.xlsx,.xls', defaultName: '',                                         override: null, uploading: false, dragOver: false },
+      { key: 'kraftpris', label: 'Kraftpris',                accept: '.xlsx,.xls', defaultName: '',                                         override: null, uploading: false, dragOver: false },
+      { key: 'id',        label: 'Selskaps-ID',              accept: '.xlsx,.xls', defaultName: '',                                         override: null, uploading: false, dragOver: false },
     ],
 
     /* ── Tab 2: Prognose ─────────────────── */
@@ -228,6 +234,7 @@ function dashboard() {
 
     // ─────────────────────────────────────────
     async init() {
+      await this.loadAar();
       await this.fetchLatestRun();
       // Don't auto-select — start with empty state; user navigates via run picker
       await this.loadDeaCompanies();
@@ -244,7 +251,39 @@ function dashboard() {
     irVisteKolonner() {
       return this.irExpanded
         ? this.irColumns
-        : this.irColumns.filter(c => IR_COMPACT_COLS.includes(c));
+        : this.irColumns.filter(c => IR_COMPACT_COLS.includes(c) || IR_AAR_KOLONNE.test(c));
+    },
+
+    // ─── Inntektsrammeår ─────────────────────
+
+    async loadAar() {
+      try {
+        const d = await this.api('GET', '/api/aar');
+        this.irAar = d.aktivt;
+        this.irAarListe = d.tilgjengelige;
+        // Same offsets from the base year as before the year could change:
+        // the first year with a change to show, and a merger three years out.
+        this.anal.aar = d.aktivt + 1;
+        this.anal.fus.fusjonsaar = d.aktivt + 3;
+      } catch (e) {
+        this.globalError = `Kunne ikke hente inntektsrammeår: ${e.message}`;
+      }
+    },
+
+    async byttAar(aar) {
+      if (!aar || aar === this.irAar) return;
+      try {
+        await this.api('PUT', '/api/aar', { aar });
+        location.reload();
+      } catch (e) {
+        this.showToast(`Kunne ikke bytte år: ${e.message}`, 'error');
+      }
+    },
+
+    // Years from `fra` to the end of the forecast assumptions (2035).
+    aarFra(fra) {
+      const start = fra ?? 2026;
+      return Array.from({ length: Math.max(0, 2035 - start + 1) }, (_, i) => start + i);
     },
 
     // ─── Helpers ─────────────────────────────

@@ -70,6 +70,22 @@
       <img src="/favicon.ico" alt="Thema" class="w-10 h-10 opacity-80" />
     </div>
 
+    <!-- Revenue cap year -->
+    <div class="px-4 py-3 border-t border-[#1a3d50]">
+      <label for="ir-aar" class="block text-xs text-[#A3D9FF]/50 mb-1">Inntektsrammeår</label>
+      <select id="ir-aar"
+              :value="irAar"
+              @change="byttAar(Number($event.target.value))"
+              :disabled="irAarListe.length < 2"
+              class="w-full bg-[#1a3d50] text-white text-sm rounded px-2 py-1 border border-[#A3D9FF]/20 focus:outline-none focus:border-[#FDD55B]">
+        <template x-for="y in irAarListe" :key="y">
+          <option :value="y" x-text="y" :selected="y === irAar"></option>
+        </template>
+      </select>
+      <p class="text-[10px] text-[#A3D9FF]/50 mt-1" x-show="irAar"
+         x-text="'Datagrunnlag ' + (irAar - 2)"></p>
+    </div>
+
     <!-- Run indicator -->
     <div class="px-4 py-3 border-t border-[#1a3d50]">
       <p class="text-xs text-[#A3D9FF]/50 mb-1">Aktiv kjøring</p>
@@ -526,7 +542,7 @@
             <!-- Results header -->
             <div x-show="irMeta" class="flex items-baseline justify-between gap-4">
               <div>
-                <h2 class="text-base font-semibold text-slate-800">Inntektsramme 2026</h2>
+                <h2 class="text-base font-semibold text-slate-800" x-text="'Inntektsramme ' + (irAar ?? '')"></h2>
                 <p class="text-xs text-slate-400 mt-0.5">
                   <span x-text="activeRunFormatted"></span>
                   <span x-show="irMeta?.n_companies"> · <span x-text="irMeta?.n_companies"></span> selskaper</span>
@@ -573,7 +589,7 @@
                 <div>
                   <label class="label">År</label>
                   <select x-model.number="anal.aar" class="input" @change="loadAnalyse()">
-                    <template x-for="y in (anal.data?.aar_tilgjengelig ?? [2026,2027,2028,2029,2030,2031,2032,2033,2034,2035])" :key="y">
+                    <template x-for="y in (anal.data?.aar_tilgjengelig ?? aarFra(irAar))" :key="y">
                       <option :value="y" x-text="y"></option>
                     </template>
                   </select>
@@ -948,7 +964,7 @@
                 <div class="mt-3 space-y-2">
                   <div>
                     <label class="label">Fusjonsår</label>
-                    <input type="number" x-model.number="prog.mergeYr" placeholder="f.eks. 2027" class="input" />
+                    <input type="number" x-model.number="prog.mergeYr" :placeholder="'f.eks. ' + ((irAar ?? 2026) + 1)" class="input" />
                   </div>
                   <div>
                     <label class="label">Synergi (%)</label>
@@ -1234,7 +1250,7 @@
                     </div>
                     <div>
                       <label class="label">Fusjonsår</label>
-                      <input type="number" min="2026" max="2035" step="1"
+                      <input type="number" :min="irAar" max="2035" step="1"
                              x-model.number="anal.fus.fusjonsaar"
                              class="w-24 text-sm border border-slate-200 rounded px-2 py-1.5">
                     </div>

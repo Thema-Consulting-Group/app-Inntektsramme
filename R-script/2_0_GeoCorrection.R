@@ -8,12 +8,13 @@ if(BS.new == 1) {
                                  Y=as.matrix(Y.avg.ld[as.character(ld_eval),]),
                                  NREP = BS.ite, RTS="crs", ORIENTATION = "in", alpha=0.1)$eff.bc)
 } else {
-  ld_bs = read.csv("./Data/Bootstrap/ld_bs.csv",sep=",")
+  ld_bs = read.csv(file.path(data_dir, "Bootstrap", "ld_bs.csv"), sep=",")
 }
 if(BS.new == 1 ) {
   names(ld_bs) = "ld_bs.correst"
   ld_bs = rownames_to_column(ld_bs, "id")
-  write.csv(ld_bs, "./Data/Bootstrap/ld_bs.csv", row.names = FALSE)
+  dir.create(file.path(data_dir, "Bootstrap"), recursive = TRUE, showWarnings = FALSE)
+  write.csv(ld_bs, file.path(data_dir, "Bootstrap", "ld_bs.csv"), row.names = FALSE)
 }
 stopifnot(exists("ld_bs") == TRUE)
 cat("[STEG] Geografisk korreksjon – Z-variabler\n"); flush(stdout())

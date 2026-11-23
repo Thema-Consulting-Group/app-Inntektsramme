@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+import aarsvalg
 from utils import Util
 
 logger = logging.getLogger(__name__)
@@ -346,7 +347,7 @@ def merge_companies(
 # Validering av opplastet grunnlagsdata
 # ---------------------------------------------------------------------------
 
-def _omradeprisbaand(config_path: str = "config.yaml") -> tuple[float, float] | None:
+def _omradeprisbaand(config_path: str | None = None) -> tuple[float, float] | None:
     """[min, max] områdepris in kr/kWh from ``config.yaml``.
 
     These are the only prices ``pnl.rc`` and ``ap.t_2`` can be built from, so
@@ -355,7 +356,7 @@ def _omradeprisbaand(config_path: str = "config.yaml") -> tuple[float, float] | 
     one, which is what lets the price check fire without false positives.
     """
     try:
-        raw = Util.load_config(config_path)
+        raw = Util.load_config(config_path or aarsvalg.config_path())
         priser = raw["forutsetninger"]["omradepriser"]
         vals = [float(v) / 1000.0 for v in priser.values() if v is not None]
         return (min(vals), max(vals)) if vals else None
@@ -364,22 +365,35 @@ def _omradeprisbaand(config_path: str = "config.yaml") -> tuple[float, float] | 
         return None
 
 
+def _prisbaand_t_2(ref: pd.DataFrame | None, col: str) -> tuple[float, float] | None:
+    """[min, max] of a t-2 price column in clean reference data (zeros skipped)."""
+    if ref is None or col not in ref.columns:
+        return None
+    v = pd.to_numeric(ref[col], errors="coerce")
+    v = v[v > 0].dropna()
+    return (float(v.min()), float(v.max())) if not v.empty else None
+
+
 def validate_grunnlagsdata(
     df: pd.DataFrame,
     ref: pd.DataFrame | None = None,
-    config_path: str = "config.yaml",
+    config_path: str | None = None,
 ) -> list[dict]:
     """Flag hand-edited grunnlagsdata that cannot be physically valid.
 
     Two checks, both with hard bounds — no statistical outlier hunting, because
     a legitimate industry maximum must never be flagged:
 
-    * **Områdepriser** (``pnl.rc``, ``ap.t_2``) must lie inside the band spanned
-      by ``forutsetninger.omradepriser`` in ``config.yaml``.  They are weighted
-      averages of those prices, so nothing else is reachable.  This is the check
-      that catches the error behind the ~1,5 mrd kr nettapssprang:
-      0,624 + 0,359 + 0,381 = 1,365 kr/kWh, roughly double the dearest price
-      area in the country.
+    * **Områdepriser** must lie inside the band spanned by the prices they are
+      built from.  For ``pnl.rc`` that is ``forutsetninger.omradepriser`` in
+      ``config.yaml``.  ``ap.t_2`` is the price *two years earlier*, which the
+      config does not carry, so its band is the range of ``ap.t_2`` in ``ref``
+      (skipped without one) — measuring it against this year's prices flagged
+      every company in a cheap zone once prices rose, as they did for 2027.
+      They are weighted averages of those prices, so nothing else is reachable.
+      This is the check that catches the error behind the ~1,5 mrd kr
+      nettapssprang: 0,624 + 0,359 + 0,381 = 1,365 kr/kWh, roughly double the
+      dearest price area in the country.
 
     * **Rammevilkårsvariabler** (``ldz_*``) must lie inside the range the same
       column spans in ``ref``.  They are averages over map grid cells, so any
@@ -432,8 +446,11 @@ def validate_grunnlagsdata(
         })
 
     # --- Områdepriser: hard bound from config ---
-    baand = _omradeprisbaand(config_path)
-    if baand:
+    config_baand = _omradeprisbaand(config_path)
+    for col in [c for c in work.columns if classify_column(c) == PRICE_WEIGHTED]:
+        baand = _prisbaand_t_2(ref, col) if col == "ap.t_2" else config_baand
+        if not baand:
+            continue
         lo, hi = baand
         # config.yaml carries the områdepriser rounded to 0,1 kr/MWh while the
         # data is full precision, so the band needs a little slack in both
@@ -441,18 +458,17 @@ def validate_grunnlagsdata(
         # (a summed price is ~2x the dearest area) and comfortably wider than
         # the rounding.
         lo_t, hi_t = lo * 0.99, hi * 1.01
-        for col in [c for c in work.columns if classify_column(c) == PRICE_WEIGHTED]:
-            per_company = (
-                pd.to_numeric(work[col], errors="coerce")
-                .groupby(work["orgn"]).max().dropna()
-            )
-            for orgn, v in per_company.items():
-                # Pure production companies have no network loss and therefore
-                # no loss price — a zero here is real data, not a bad edit.
-                if v == 0:
-                    continue
-                if v > hi_t or v < lo_t:
-                    flag(col, orgn, float(v), lo, hi, PRICE_WEIGHTED)
+        per_company = (
+            pd.to_numeric(work[col], errors="coerce")
+            .groupby(work["orgn"]).max().dropna()
+        )
+        for orgn, v in per_company.items():
+            # Pure production companies have no network loss and therefore
+            # no loss price — a zero here is real data, not a bad edit.
+            if v == 0:
+                continue
+            if v > hi_t or v < lo_t:
+                flag(col, orgn, float(v), lo, hi, PRICE_WEIGHTED)
 
     # --- Rammevilkårsvariabler: range taken from the reference file ---
     if ref is not None and "orgn" in ref.columns:

@@ -1,7 +1,7 @@
 """Prognoseberegning for inntektsramme – per nettnivå.
 
 Full revenue cap projection matching NVE's online prognosis tool.
-Projects a company's costs and revenue cap 2026–2035 using:
+Projects a company's costs and revenue cap from the base year to 2035 using:
   - KPI and KPI lønn as separate growth drivers
   - Per-network-level cost breakdowns (LD = Distribution, RD = Regional)
   - NVE-rente for capital returns
@@ -19,8 +19,24 @@ import pandas as pd
 import numpy as np
 from functools import lru_cache
 
-FORECAST_YEARS = list(range(2025, 2036))  # <-- start 2025
-_BASE_YEAR = 2026  # revenue cap model output year (y.rc)
+import aarsvalg
+
+# Forutsetningene (kraftpris_soner.csv, DEFAULT_*) går til og med 2035, så
+# prognosen stopper der uansett basisår.
+_SISTE_PROGNOSEAAR = 2035
+
+
+def basisaar() -> int:
+    """Revenue cap model output year (y.rc) for the year selected in the app."""
+    return aarsvalg.aktivt_aar()
+
+
+def prognoseaar(basis: int | None = None) -> list[int]:
+    """Forecast years: the year before the base year (a back-projection, not a
+    model result) through _SISTE_PROGNOSEAAR."""
+    b = basis or basisaar()
+    return list(range(b - 1, _SISTE_PROGNOSEAAR + 1))
+
 
 _SONER_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "BaseData", "kraftpris_soner.csv")
 
@@ -32,7 +48,7 @@ def load_forutsetninger_from_csv(path: str = _SONER_CSV) -> dict | None:
     try:
         df = pd.read_csv(path)
         year_cols = [c for c in df.columns if c.strip().isdigit()]
-        forecast_years = [y for y in year_cols if int(y) >= 2025]
+        forecast_years = [y for y in year_cols if int(y) >= basisaar() - 1]
 
         def _row(sone_name: str) -> dict:
             row = df[df["sone"] == sone_name]
@@ -187,8 +203,8 @@ def build_investeringer_from_model(
             avg_raw = float(np.mean(vals_list[-n_lookback:])) if vals_list else 0.0
 
             # Forecast starts from last_hist + 1 (includes e.g. 2025 if hist ends at 2024)
-            last_hist = max(vals_map.keys()) if vals_map else (_BASE_YEAR - 1)
-            end_yr = max(FORECAST_YEARS)
+            last_hist = max(vals_map.keys()) if vals_map else (basisaar() - 1)
+            end_yr = max(prognoseaar())
             full_fcst_years = list(range(last_hist + 1, end_yr + 1))
 
             # Cumulative KPI growth from last_hist — no separate bridge needed
@@ -409,7 +425,7 @@ def load_investeringer_for_company(company_id: int, csv_path: str = _INV_CSV) ->
 # ---------------------------------------------------------------------------
 
 class PrognoseCalculator:
-    """Project one company's revenue cap over FORECAST_YEARS.
+    """Project one company's revenue cap over prognoseaar() (base year − 1 … 2035).
 
     Parameters
     ----------
@@ -463,6 +479,9 @@ class PrognoseCalculator:
         bfv_rebase: str = "none",
         include_utred: bool = False,
     ):
+        # Captured once so a year switch in the app mid-request cannot mix years.
+        self._basisaar = basisaar()
+        self._prognoseaar = prognoseaar(self._basisaar)
         self.bfv_rebase = bfv_rebase
         self.include_utred = include_utred
         self.use_historical_inv = use_historical_inv
@@ -628,7 +647,7 @@ class PrognoseCalculator:
         self.avg_inv_gf_ld = 0.0
         self.avg_inv_sf_rd = 0.0
         self.avg_inv_gf_rd = 0.0
-        self.last_hist_year = _BASE_YEAR - 1
+        self.last_hist_year = self._basisaar - 1
         self.task_elas: dict = {"ld": {}, "rd": {}}  # Δtask per MNOK invested
 
         if csv_path is None or not os.path.exists(csv_path):
@@ -876,16 +895,16 @@ class PrognoseCalculator:
         rd_wv_sc = self.rd_wv_sc0
         rd_wv_ss = self.rd_wv_ss0
 
-        # KPI bridge: bring avg investment from last_hist_year to _BASE_YEAR price level
-        _default_kpi = self._get(self.f["kpi"], _BASE_YEAR, 2.0)
+        # KPI bridge: bring avg investment from last_hist_year to self._basisaar price level
+        _default_kpi = self._get(self.f["kpi"], self._basisaar, 2.0)
         _inv_kpi_bridge = 1.0
-        for _yr in range(self.last_hist_year + 1, _BASE_YEAR + 1):
+        for _yr in range(self.last_hist_year + 1, self._basisaar + 1):
             _inv_kpi_bridge *= (1 + self._get(self.f["kpi"], _yr, _default_kpi) / 100)
         _inv_sf_ld_base = self.avg_inv_sf_ld * _inv_kpi_bridge
         _inv_gf_ld_base = self.avg_inv_gf_ld * _inv_kpi_bridge
         _inv_sf_rd_base = self.avg_inv_sf_rd * _inv_kpi_bridge
         _inv_gf_rd_base = self.avg_inv_gf_rd * _inv_kpi_bridge
-        _inv_kpi_cum = 1.0  # accumulates KPI growth beyond _BASE_YEAR
+        _inv_kpi_cum = 1.0  # accumulates KPI growth beyond self._basisaar
 
         # Sub-component tracking (grown in parallel with mat/lab)
         ld_pens = self.ld_pens0
@@ -900,28 +919,28 @@ class PrognoseCalculator:
         rd_impl = self.rd_impl0
         rd_utred = self.rd_utred0
 
-        kp_base = self._get(self.f["kraftpris"], _BASE_YEAR, self.kraftpris_base)
+        kp_base = self._get(self.f["kraftpris"], self._basisaar, self.kraftpris_base)
 
-        # Andre driftsinntekter: KPI-bridge from hist base year to _BASE_YEAR
+        # Andre driftsinntekter: KPI-bridge from hist base year to self._basisaar
         ld_391 = self.ld_391_avg
         rd_391 = self.rd_391_avg
-        for _yr in range(self.last_hist_year + 1, _BASE_YEAR + 1):
+        for _yr in range(self.last_hist_year + 1, self._basisaar + 1):
             _kpi_br = self._get(self.f["kpi"], _yr, 2.0) / 100
             ld_391 *= 1 + _kpi_br
             rd_391 *= 1 + _kpi_br
 
-        # 2025 back-projection: deflation factors from _BASE_YEAR (2026) growth assumptions
-        _bp_dv_gr   = self._get(self.dv_v["dv_ekskl_lonn_pct"],     _BASE_YEAR, 2.5) / 100
-        _bp_lonn_gr = self._get(self.dv_v["lonn_ekskl_pensjon_pct"], _BASE_YEAR, 2.5) / 100
-        _bp_kpi     = self._get(self.f["kpi"],                        _BASE_YEAR, 2.0) / 100
+        # Back-projection of base year − 1: deflation factors from the base year's growth assumptions
+        _bp_dv_gr   = self._get(self.dv_v["dv_ekskl_lonn_pct"],     self._basisaar, 2.5) / 100
+        _bp_lonn_gr = self._get(self.dv_v["lonn_ekskl_pensjon_pct"], self._basisaar, 2.5) / 100
+        _bp_kpi     = self._get(self.f["kpi"],                        self._basisaar, 2.0) / 100
 
-        for i, year in enumerate(FORECAST_YEARS):
+        for i, year in enumerate(self._prognoseaar):
             nve_rente = self._get(self.f["nve_rente"], year, 7.0) / 100
             kraftpris = self._get(self.f["kraftpris"], year, 700)
 
-            # Back-project 2025 by deflating from 2026 base; restore tracking vars after row
+            # Back-project base year − 1 by deflating from the base year; restore tracking vars after row
             _bp_saved = None
-            if year < _BASE_YEAR:
+            if year < self._basisaar:
                 dv_gr   = _bp_dv_gr
                 lonn_gr = _bp_lonn_gr
                 kpi     = _bp_kpi
@@ -945,7 +964,7 @@ class PrognoseCalculator:
                 rd_pens    /= (1 + dv_gr);    rd_pens_eq /= (1 + dv_gr);   rd_impl    /= (1 + dv_gr)
                 rd_sal     /= (1 + lonn_gr);  rd_sal_cap /= (1 + lonn_gr); rd_utred   /= (1 + dv_gr)
                 ld_391     /= (1 + kpi);      rd_391     /= (1 + kpi)
-            elif year > _BASE_YEAR:
+            elif year > self._basisaar:
                 dv_gr = self._get(self.dv_v["dv_ekskl_lonn_pct"], year, 2.5) / 100
                 lonn_gr = self._get(self.dv_v["lonn_ekskl_pensjon_pct"], year, 2.5) / 100
                 kpi = self._get(self.f["kpi"], year, 2.0) / 100
@@ -1071,9 +1090,9 @@ class PrognoseCalculator:
             k_rd_excl = self.eff_rd * (rd_kg_t - rd_nettap_t)
             k_rd_t = k_rd_excl + rd_nettap_t
 
-            # Base year (2026): pin KG/KN/IR to the exact values from the IR model
+            # Base year: pin KG/KN/IR to the exact values from the IR model
             # (avoids mismatch from nve_rente vs referanserente and raw vs kpi-adjusted KILE)
-            if year == _BASE_YEAR:
+            if year == self._basisaar:
                 if self.ld_kg:
                     ld_kg_t = self.ld_kg
                 if self.rd_kg:
@@ -1164,7 +1183,7 @@ class PrognoseCalculator:
             }
             rows.append(row_data)
 
-            # Restore tracking vars after back-projection (2025)
+            # Restore tracking vars after back-projection (base year − 1)
             if _bp_saved is not None:
                 (ld_dv_mat, ld_dv_lab, rd_dv_mat, rd_dv_lab,
                  ld_bfv, rd_bfv, ld_kile, rd_kile,

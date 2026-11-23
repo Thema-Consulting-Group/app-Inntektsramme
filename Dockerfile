@@ -55,8 +55,9 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements-docker.tx
 # ---------------------------------------------------------------------------
 COPY . .
 
-# Ensure runtime-writable directories exist (Bootstrap excluded from image)
-RUN mkdir -p /app/Data/Bootstrap /app/Results
+# Ensure runtime-writable directories exist. R creates Data/<år>/Bootstrap and
+# Results/<år> itself (R-script/aarsvalg.R).
+RUN mkdir -p /app/Results
 
 # ---------------------------------------------------------------------------
 # 5. Runtime configuration

@@ -1,0 +1,498 @@
+# Inntektsrammer 2026 (varsel). Datagrunnlag 2024.
+aar: 2026
+irir_results_path: ''
+LD_results_path: ''
+RD_results_path: ''
+data_resultater_ld_path: ''
+data_resultater_rd_path: ''
+forutsetninger:
+  rho: 0.7
+  referanserente: 7.21
+  finansparametere:
+    gjeldsandel: 0.6
+    noytral_realrente: 1.5
+    ek-beta: 0.875
+    markedspremie: 5.0
+    skatt: 0.22
+    inflasjon: 2.55
+    swap: 3.98
+    kredittpremie: 0.84
+  omradepriser:
+    NO1: 624.3
+    NO2: 670.7
+    NO3: 381.1
+    NO4: 226.1
+    NO5: 557.7
+  kpi_justering:
+    2024: 133.6
+    2026: 140.6
+  aarslonn:
+    2024: 129.9
+    2026: 141.7
+kalibrering:
+  sum_ir_k_per_sum_akg_pct: -0.023
+  sum_renter_avvik_per_sum_akg_pct: -0.098
+dea_overrides:
+  ld:
+    753: null
+    121: 0.81
+    167: 0.52
+    222: 1.07
+    294: 0.74
+    743: 0.87
+    852: 0.91
+    873: 0.85
+  rd:
+    32: 0.82
+    43: 0.74
+    63: 0.98
+    88: 0.94
+    91: 0.96
+    98: 1.2
+    157: 2.23
+    161: 1.17
+    162: 0.95
+    213: 1.04
+    222: 1.14
+    267: 1.03
+    274: 0.85
+    349: 0.95
+    447: 0.75
+    542: 1.98
+    599: 1.17
+    685: 1.0
+    35: null
+    42: null
+    116: null
+    135: null
+    223: null
+kundetillegg_path: Data/2026/kundetillegg.csv
+prognose:
+  selskap_id: 7
+  forutsetninger:
+    kpi:
+      2026: 3.2
+      2027: 2.4
+      2028: 2.3
+      2029: 1.9
+      2030: 2.0
+      2031: 2.0
+      2032: 2.0
+      2033: 2.0
+      2034: 2.0
+      2035: 2.0
+    kpi_lonn:
+      2026: 3.6
+      2027: 3.0
+      2028: 2.85
+      2029: 2.55
+      2030: 2.57
+      2031: 2.56
+      2032: 2.54
+      2033: 2.53
+      2034: 2.51
+      2035: 2.5
+    nve_rente:
+      2026: 7.53
+      2027: 7.48
+      2028: 7.32
+      2029: 7.27
+      2030: 7.24
+      2031: 7.26
+      2032: 7.25
+      2033: 7.23
+      2034: 7.2
+      2035: 7.16
+    kraftpris:
+      2026: 786.0
+      2027: 640.0
+      2028: 633.0
+      2029: 617.0
+      2030: 643.0
+      2031: 744.0
+      2032: 743.0
+      2033: 746.0
+      2034: 729.0
+      2035: 715.0
+  investeringer:
+    dnett_pct:
+      2026: 8.5
+      2027: 8.5
+      2028: 8.5
+      2029: 8.3
+      2030: 8.1
+      2031: 8.0
+      2032: 7.9
+      2033: 7.8
+      2034: 7.8
+      2035: 7.5
+    rnett_pct:
+      2026: 0.0
+      2027: 0.0
+      2028: 5.0
+      2029: 5.0
+      2030: 5.0
+      2031: 5.0
+      2032: 5.0
+      2033: 5.0
+      2034: 5.0
+      2035: 0.0
+  dv_vekst:
+    dv_ekskl_lonn_pct:
+      2026: 6.3
+      2027: 3.6
+      2028: 2.9
+      2029: 2.7
+      2030: 2.6
+      2031: 2.6
+      2032: 2.6
+      2033: 2.6
+      2034: 2.6
+      2035: 2.6
+    lonn_ekskl_pensjon_pct:
+      2026: 4.2
+      2027: 3.7
+      2028: 3.2
+      2029: 2.9
+      2030: 2.7
+      2031: 2.6
+      2032: 2.6
+      2033: 2.6
+      2034: 2.6
+      2035: 2.6
+  avs_sats: 4.0
+  labor_share_ld: 0.3
+  labor_share_rd: 0.3
+fusjoner:
+  7:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  9:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  16:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  22:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  32:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  35:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  37:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  42:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  43:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  55:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  63:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  65:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  71:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  82:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  84:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  86:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  88:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  91:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  93:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  95:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  96:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  98:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  104:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  116:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  121:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  132:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  133:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  135:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  157:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  161:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  162:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  164:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  167:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  168:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  173:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  194:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  197:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  213:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  214:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  215:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  222:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  223:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  227:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  238:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  242:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  248:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  249:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  251:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  257:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  264:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  267:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  269:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  274:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  275:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  287:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  294:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  295:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  306:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  311:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  349:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  354:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  433:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  447:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  464:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  503:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  511:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  542:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  566:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  591:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  599:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  611:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  613:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  624:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  625:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  659:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  675:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  685:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  699:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  743:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  753:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  852:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  873:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0
+  903:
+    merge_yr: null
+    synergy_pct: 0
+    one_off: 0

@@ -9,6 +9,7 @@ import os
 import logging
 import numpy as np
 import pandas as pd
+import aarsvalg
 from utils import Util
 
 logger = logging.getLogger(__name__)
@@ -54,10 +55,21 @@ def front_companies(res: pd.DataFrame, prefix: str) -> list[str]:
 class Config:
     """Load YAML and expose derived parameters."""
 
-    def __init__(self, path: str = "config.yaml", run_name: str | None = None):
+    def __init__(self, path: str | None = None, run_name: str | None = None):
+        # None = config.yaml for the year selected in the app (Data/<år>/).
+        path = str(path or aarsvalg.config_path())
         self._raw: dict = Util.load_config(path)
         self.base_dir: str = os.path.dirname(os.path.abspath(__file__))
         self._run_name: str | None = run_name  # if set, use this specific Run_* dir
+
+        # Inntektsrammeåret (y.rc) and the data year two years earlier (y.cb).
+        # The year is stated in the file so a config can never be read as
+        # another year's; the folder it lives in has to agree.
+        self.aar: int = int(self._raw["aar"])
+        mappe = os.path.basename(os.path.dirname(os.path.abspath(path)))
+        if mappe.isdigit() and int(mappe) != self.aar:
+            raise ValueError(f"{path} sier aar: {self.aar}, men ligger i mappen for {mappe}.")
+        self.data_aar: int = self.aar - 2
 
         fp = self.f  # shorthand
         # Pre-compute reference rate once — use config override if provided
@@ -71,8 +83,8 @@ class Config:
         self.rho: float = fp["rho"]
         kpi = fp["kpi_justering"]
         wage = fp["aarslonn"]
-        self.kpi_ratio: float = kpi[2026] / kpi[2024]
-        self.wage_ratio: float = wage[2026] / wage[2024]
+        self.kpi_ratio: float = kpi[self.aar] / kpi[self.data_aar]
+        self.wage_ratio: float = wage[self.aar] / wage[self.data_aar]
 
         # Calibration constants (temporary hacks — kept in config)
         cal = self._raw["kalibrering"]
@@ -88,8 +100,10 @@ class Config:
         self.arbeidskapital_faktor: float = 1.01
 
         # Paths
-        self.kundetillegg_path: str = os.path.join(
-            self.base_dir, self._raw.get("kundetillegg_path", "Data/kundetillegg.csv")
+        kt = self._raw.get("kundetillegg_path")
+        self.kundetillegg_path: str = (
+            os.path.join(self.base_dir, kt) if kt
+            else str(aarsvalg.data_dir(self.aar) / "kundetillegg.csv")
         )
 
     # --- forutsetninger shorthand ---
@@ -108,10 +122,10 @@ class Config:
         """
         cfg = self._raw
         if not cfg.get("irir_results_path"):
-            results_dir = os.path.join(self.base_dir, "Results")
+            results_dir = str(aarsvalg.results_dir(self.aar))
             if not os.path.isdir(results_dir):
                 raise FileNotFoundError(
-                    "Results/ directory not found. "
+                    f"Ingen resultater for {self.aar} (Results/{self.aar}/ finnes ikke). "
                     "Run the R pipeline (Step 1) to generate result files."
                 )
             if self._run_name:
@@ -119,7 +133,7 @@ class Config:
                 latest = self._run_name
                 if not os.path.isdir(os.path.join(results_dir, latest)):
                     raise FileNotFoundError(
-                        f"Run directory '{latest}' not found in Results/."
+                        f"Run directory '{latest}' not found in Results/{self.aar}/."
                     )
             else:
                 run_dirs = sorted(
@@ -128,7 +142,7 @@ class Config:
                 )
                 if not run_dirs:
                     raise FileNotFoundError(
-                        "No Run_* directories found in Results/. "
+                        f"No Run_* directories found in Results/{self.aar}/. "
                         "Run the R pipeline (Step 1) to generate result files."
                     )
                 # Find the newest dir that has all three required files
@@ -415,7 +429,7 @@ class RevenueCapCalculator:
     calibration, and produces the final ETL DataFrame.
     """
 
-    def __init__(self, config_path: str = "config.yaml", run_name: str | None = None):
+    def __init__(self, config_path: str | None = None, run_name: str | None = None):
         self.cfg = Config(config_path, run_name=run_name)
         self.data = DataLoader(self.cfg)
         self.costs = CostCalculator(self.data, self.cfg)
@@ -530,11 +544,12 @@ class RevenueCapCalculator:
     def build_ir_dataframe(self) -> pd.DataFrame:
         d = self.data
         c = self.costs
+        cfg_aar = self.cfg.aar
         return pd.DataFrame({
             "Org.nr": d.orgn,
             "ID": d.id,
             "Selskap": d.comp,
-            "År": 2024,
+            "År": self.cfg.data_aar,
             "DV inkl.utrednings-ansvar": c.dv_total_incl_utred,
             "Kostnader knyttet til utrednings- og koordineringsansvar": d.rd_cga,
             "DV uten kostnader knyttet til utrednings-ansvar": c.dv_total,
@@ -560,7 +575,7 @@ class RevenueCapCalculator:
             "Transmisjonsnett AVS": d.t_avs,
             "Transmisjonsnett AKG inkl 1% arbeids-kapital": d.t_akg,
             "Transmisjonsnett KILE (fq)": d.t_kile,
-            "Kraftpris 2026": d.kraftpris,
+            f"Kraftpris {cfg_aar}": d.kraftpris,
             "Lokalt Årslønnjusterte D&V-kostnader": c.ld_dv_wage,
             "Lokalt Nettapskostnad": c.ld_nettap,
             "Lokalt Sum kostnader": c.ld_sum_kostnader,
@@ -604,7 +619,7 @@ class RevenueCapCalculator:
             "rho": cfg.rho,
             "sum ir k per sum akg": cfg.sum_ir_k_per_akg,
             "sum renter avvik": cfg.sum_renter_avvik_per_akg,
-            "inntektsramme 2026": ir_etter,
+            f"inntektsramme {cfg.aar}": ir_etter,
             "D&V-kostnader eks utredningskostnader": c.dv_total,
             "Årslønn-justerte D&V-kostnader eks utredningskostnader": c.dv_wage_adj,
             "AVS": c.avs,

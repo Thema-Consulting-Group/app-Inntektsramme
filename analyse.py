@@ -35,15 +35,16 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
-from flerarsark import ARK_BASE_YEAR, build_flerarsark
+from flerarsark import ark_basisaar, build_flerarsark
 from inntektsramme import RevenueCapCalculator, front_weights
-from prognose import FORECAST_YEARS
+from prognose import prognoseaar
+import aarsvalg
 
 logger = logging.getLogger(__name__)
 
-# Alle år panelet kan vise.  Vi bygger alltid hele spennet slik at ethvert år
-# (unntatt det første) har et foregående år å regne endring mot.
-ANALYSE_YEARS = list(FORECAST_YEARS)
+# Panelet kan vise alle prognoseår (prognoseaar()).  Vi bygger alltid hele
+# spennet slik at ethvert år (unntatt det første) har et foregående år å regne
+# endring mot.
 
 # ---------------------------------------------------------------------------
 # Farger
@@ -130,19 +131,20 @@ def _cache_get(store: dict, key, build):
     return val
 
 
-def get_rc(run_name: str | None, config_path: str = "config.yaml") -> RevenueCapCalculator:
-    return _cache_get(_RC_CACHE, (run_name, config_path),
+def get_rc(run_name: str | None, config_path: str | None = None) -> RevenueCapCalculator:
+    # Året er med i nøkkelen: run_name=None betyr "nyeste kjøring" for aktivt år.
+    return _cache_get(_RC_CACHE, (aarsvalg.aktivt_aar(), run_name, config_path),
                       lambda: RevenueCapCalculator(config_path, run_name=run_name))
 
 
 def get_ark(run_name: str | None = None, recalibrate: bool = True,
             bfv_rebase: str = "both", align_basis: bool = True,
             base_year_from_ark: bool = True):
-    key = (run_name, recalibrate, bfv_rebase, align_basis, base_year_from_ark)
+    key = (aarsvalg.aktivt_aar(), run_name, recalibrate, bfv_rebase, align_basis, base_year_from_ark)
     return _cache_get(_ARK_CACHE, key, lambda: build_flerarsark(
         run_name=run_name, recalibrate=recalibrate, bfv_rebase=bfv_rebase,
         align_basis=align_basis, base_year_from_ark=base_year_from_ark,
-        years=ANALYSE_YEARS,
+        years=prognoseaar(),
     ))
 
 
@@ -226,7 +228,7 @@ def build_analyse(orgn: int, year: int, run_name: str | None = None,
     # vekstforutsetningene.  En endring mot det året gjentar bare forutsetningene
     # og sier ingenting om selskapet, så da oppgir vi ingen endringstall.
     prev_year = year - 1 if (year - 1) in sel.index else None
-    if prev_year is not None and prev_year < ARK_BASE_YEAR:
+    if prev_year is not None and prev_year < ark_basisaar():
         prev_year = None
     prev = sel.loc[prev_year] if prev_year is not None else None
     selskap = str(cur["selskap"])
@@ -309,22 +311,22 @@ def build_analyse(orgn: int, year: int, run_name: str | None = None,
 
     # --- Merknader -----------------------------------------------------------
     if prev_year is None:
-        if year <= ARK_BASE_YEAR:
+        if year <= ark_basisaar():
             merknader.append(
                 f"{year} er basisåret. Året før er tilbakeskrevet ved å deflatere "
-                f"{ARK_BASE_YEAR}, så en endring mot det ville bare gjentatt "
+                f"{ark_basisaar()}, så en endring mot det ville bare gjentatt "
                 "vekstforutsetningene. Endringstall vises derfor fra "
-                f"{ARK_BASE_YEAR + 1}."
+                f"{ark_basisaar() + 1}."
             )
         else:
             merknader.append(f"{year} er første år i spennet — ingen endringstall.")
     merknader.append(
-        f"Trinn 1 og 2 er DEA-resultater for basisåret {ARK_BASE_YEAR}. "
+        f"Trinn 1 og 2 er DEA-resultater for basisåret {ark_basisaar()}. "
         "Prognosen holder effektiviteten fast, så i prognoseår beveger bare "
         "trinn 3 (oppkalibreringen) seg."
     )
     merknader.append(
-        f"Frontselskapene er DEA-resultat for basisåret {ARK_BASE_YEAR} og er "
+        f"Frontselskapene er DEA-resultat for basisåret {ark_basisaar()} og er "
         "like for alle år."
     )
     if ld_overstyrt or rd_overstyrt:
@@ -344,7 +346,7 @@ def build_analyse(orgn: int, year: int, run_name: str | None = None,
         "aar": year,
         "forrige_aar": prev_year,
         # 2025 tilbys ikke: det er en tilbakeskriving, ikke et modellresultat.
-        "aar_tilgjengelig": [int(y) for y in sel.index if int(y) >= ARK_BASE_YEAR],
+        "aar_tilgjengelig": [int(y) for y in sel.index if int(y) >= ark_basisaar()],
         "ir": {"mnok": ir_mnok, "endring_mnok": ir_endring},
         "avkastning": {"pct": avk_pct, "mnok": avk_kr / 1000, "endring_pp": avk_endring},
         "trinn": trinn,
@@ -416,7 +418,7 @@ def build_tidsserie(orgn: int, run_name: str | None = None,
     sel = sel.set_index("aar").sort_index()
 
     # Basisåret og framover; 2025 er en tilbakeskriving og holdes utenfor.
-    fra = max(int(aar_fra or ARK_BASE_YEAR), ARK_BASE_YEAR)
+    fra = max(int(aar_fra or ark_basisaar()), ark_basisaar())
     til = int(aar_til) if aar_til else int(sel.index.max())
     years = [int(y) for y in sel.index if fra <= int(y) <= til]
     if len(years) < 2:
@@ -531,7 +533,7 @@ def build_tidsserie(orgn: int, run_name: str | None = None,
     }
 
     merknader = [
-        f"Basisåret {ARK_BASE_YEAR} er hentet fra RME-modellen; årene etter er "
+        f"Basisåret {ark_basisaar()} er hentet fra RME-modellen; årene etter er "
         "framskrevet med forutsetningene fra prognosen.",
         "Frontselskapenes andeler er konstante over perioden: DEA kjøres bare for "
         "basisåret, og prognosen holder effektiviteten fast. Utviklingen viser "

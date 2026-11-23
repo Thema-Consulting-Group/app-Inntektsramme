@@ -42,10 +42,21 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
+import aarsvalg  # noqa: E402  (needs ROOT on sys.path)
 import fusjon_grunnlagsdata  # noqa: E402  (needs ROOT on sys.path)
 import variabelnavn  # noqa: E402  (needs ROOT on sys.path)
 
 logger = logging.getLogger(__name__)
+
+# Filer fra før årsmappene fantes (lokale kjøringer, opplastinger) flyttes inn
+# under 2026 én gang.  Gjøres her fordi Data/ og Results/ er volumer i Docker,
+# så git pull alene flytter ikke det som bare ligger på serveren.
+try:
+    _flyttet = aarsvalg.flytt_eldre_oppsett()
+    if _flyttet:
+        logger.warning("Flyttet %d filer/mapper inn under 2026: %s", len(_flyttet), _flyttet)
+except OSError as exc:
+    logger.warning("Kunne ikke flytte eldre oppsett inn under 2026: %s", exc)
 
 # ---------------------------------------------------------------------------
 # Optional HTTP Basic Auth  (set APP_USER + APP_PASS env vars to enable)
@@ -81,13 +92,39 @@ app = FastAPI(
     dependencies=[Depends(_check_auth)],
 )
 
-# Path where the user can drop a grunnlagsdata CSV to override auto-detection
-_UPLOADED_GRUNN = ROOT / "Data" / "grunnlagsdata_uploaded.csv"
+# Path where the user can drop a grunnlagsdata CSV to override auto-detection.
+# One per year (Data/<år>/), since the companies and years in it differ.
+def _uploaded_grunn(aar: int | None = None) -> Path:
+    return aarsvalg.data_dir(aar) / "grunnlagsdata_uploaded.csv"
+
 
 # Pristine copy of the last generated grunnlagsdata. The upload slot above is
 # consumed by a run; this one is not, so it stays available as the clean
 # baseline for validating hand edits and as the starting point for a merge.
-_GENERATED_GRUNN = ROOT / "Data" / "grunnlagsdata_generert.csv"
+def _generated_grunn(aar: int | None = None) -> Path:
+    return aarsvalg.data_dir(aar) / "grunnlagsdata_generert.csv"
+
+
+# ---------------------------------------------------------------------------
+# /api/aar  — which revenue cap year the app works on
+# ---------------------------------------------------------------------------
+
+class AarRequest(BaseModel):
+    aar: int
+
+
+@app.get("/api/aar")
+def get_aar():
+    return {"aktivt": aarsvalg.aktivt_aar(), "tilgjengelige": aarsvalg.tilgjengelige_aar()}
+
+
+@app.put("/api/aar")
+def put_aar(body: AarRequest):
+    try:
+        aarsvalg.sett_aktivt_aar(body.aar)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return get_aar()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,8 +135,8 @@ def _resolve_grunnlagsdata(run_name: str | None = None) -> str | None:
     Uploaded file always takes priority over auto-detection.
     run_name is only used as fallback when no uploaded file exists.
     """
-    if _UPLOADED_GRUNN.exists():
-        return str(_UPLOADED_GRUNN)
+    if _uploaded_grunn().exists():
+        return str(_uploaded_grunn())
     paths = _latest_run_paths(run_name)
     return str(paths[0]) if paths else None
 
@@ -127,7 +164,7 @@ def _df_to_records(df: pd.DataFrame) -> list[dict]:
 
 def _latest_run_paths(run_name: str | None = None) -> tuple[Path, Path, Path] | None:
     """Return (irir_path, ld_path, rd_path) from a specific or the latest complete Run_* dir."""
-    results_dir = ROOT / "Results"
+    results_dir = aarsvalg.results_dir()
     if not results_dir.is_dir():
         return None
 
@@ -213,19 +250,22 @@ class PrognoseRequest(BaseModel):
 # /api/input-files  — BaseData override files (irbase / kraftpris / id)
 # ---------------------------------------------------------------------------
 
-# The default filenames must stay in sync with R-script/0_1_Config_Assumptions_Data.R,
-# which resolves the same override-then-default pair for each input file.
-_INPUT_FILE_DEFS: dict[str, dict[str, str]] = {
-    "irbase":    {"override": "irBase_override.xlsx",
-                  "default":  "irBase - Stata - 12.11.2025 09_56_56.xlsx",
-                  "folder":   "Data/BaseData"},
-    "kraftpris": {"override": "kraftpris_override.xlsx",
-                  "default":  "kraftpris2026.xlsx",
-                  "folder":   "Data/BaseData"},
-    "id":        {"override": "id_override.xlsx",
-                  "default":  "id_ir_26.xlsx",
-                  "folder":   "Data/BaseData"},
-}
+# The files live in Data/<år>/BaseData. Which file is the default is decided by
+# name pattern in aarsvalg.INNDATA_MONSTER, and R-script/aarsvalg.R uses the
+# same override-then-default rule.
+_INPUT_FILE_KEYS = tuple(aarsvalg.INNDATA_MONSTER)
+
+
+def _check_input_key(key: str) -> None:
+    if key not in _INPUT_FILE_KEYS:
+        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
+
+
+def _standardfil(key: str) -> Path:
+    try:
+        return aarsvalg.standardfil(key)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
 
 # In-app editing targets the small lookup files (kraftpris is 82x2, id 97x3).
 # irBase is 440x64 - 28k cells is more than the browser table handles well and
@@ -241,44 +281,40 @@ def _resolve_input_file(key: str) -> tuple[Path, str, bool]:
     otherwise the shipped default - so a download hands back exactly what the
     next run would use.
     """
-    if key not in _INPUT_FILE_DEFS:
-        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
-    d = _INPUT_FILE_DEFS[key]
-    folder = ROOT / d["folder"]
-    override = folder / d["override"]
+    _check_input_key(key)
+    override = aarsvalg.overstyringsfil(key)
     if override.exists():
-        return override, d["override"], True
-    default = folder / d["default"]
-    if not default.exists():
-        raise HTTPException(404, f"Finner ikke standardfilen «{d['default']}» i {d['folder']}.")
-    return default, d["default"], False
+        return override, override.name, True
+    default = _standardfil(key)
+    return default, default.name, False
 
 
 @app.get("/api/input-files")
 def get_input_files():
     result: dict = {}
-    for key, d in _INPUT_FILE_DEFS.items():
-        p = ROOT / d["folder"] / d["override"]
-        base = ROOT / d["folder"] / d["default"]
+    for key in _INPUT_FILE_KEYS:
+        p = aarsvalg.overstyringsfil(key)
+        try:
+            base_name, base_exists = aarsvalg.standardfil(key).name, True
+        except FileNotFoundError:
+            base_name, base_exists = None, False
         result[key] = {
             "active": p.exists(),
-            "filename": d["override"] if p.exists() else None,
+            "filename": p.name if p.exists() else None,
             "size": p.stat().st_size if p.exists() else None,
             # What a download would hand back when no override is uploaded.
-            "default_filename": d["default"],
-            "default_exists": base.exists(),
+            "default_filename": base_name,
+            "default_exists": base_exists,
         }
     return result
 
 
 @app.post("/api/input-files/{key}")
 async def upload_input_file(key: str, file: UploadFile = File(...)):
-    if key not in _INPUT_FILE_DEFS:
-        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
+    _check_input_key(key)
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Kun Excel-filer (.xlsx/.xls) støttes.")
-    d = _INPUT_FILE_DEFS[key]
-    dest = ROOT / d["folder"] / d["override"]
+    dest = aarsvalg.overstyringsfil(key)
     content = await file.read()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(content)
@@ -287,10 +323,8 @@ async def upload_input_file(key: str, file: UploadFile = File(...)):
 
 @app.delete("/api/input-files/{key}")
 def delete_input_file(key: str):
-    if key not in _INPUT_FILE_DEFS:
-        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
-    d = _INPUT_FILE_DEFS[key]
-    p = ROOT / d["folder"] / d["override"]
+    _check_input_key(key)
+    p = aarsvalg.overstyringsfil(key)
     if p.exists():
         p.unlink()
     return {"ok": True}
@@ -377,8 +411,7 @@ def _coerce_sheet_types(df: pd.DataFrame) -> pd.DataFrame:
 @app.post("/api/input-files/{key}/sheet")
 def save_input_file_sheet(key: str, body: SheetSaveRequest):
     """Write edited rows back as the override workbook for this input file."""
-    if key not in _INPUT_FILE_DEFS:
-        raise HTTPException(404, f"Ukjent fil-nøkkel: {key}")
+    _check_input_key(key)
     if not body.columns:
         raise HTTPException(400, "Ingen kolonner å lagre.")
     if not body.rows:
@@ -389,8 +422,7 @@ def save_input_file_sheet(key: str, body: SheetSaveRequest):
     df = pd.DataFrame(body.rows).reindex(columns=body.columns)
     df = _coerce_sheet_types(df)
 
-    d = _INPUT_FILE_DEFS[key]
-    dest = ROOT / d["folder"] / d["override"]
+    dest = aarsvalg.overstyringsfil(key)
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Write beside the target and move into place: a crash mid-write would
     # otherwise leave a truncated override that the next run reads as gospel.
@@ -401,9 +433,9 @@ def save_input_file_sheet(key: str, body: SheetSaveRequest):
         tmp.replace(dest)
     except Exception as e:
         tmp.unlink(missing_ok=True)
-        raise HTTPException(500, f"Kunne ikke skrive «{d['override']}»: {e}")
+        raise HTTPException(500, f"Kunne ikke skrive «{dest.name}»: {e}")
 
-    return {"ok": True, "filename": d["override"], "rows": len(df), "cols": len(df.columns)}
+    return {"ok": True, "filename": dest.name, "rows": len(df), "cols": len(df.columns)}
 
 
 # ---------------------------------------------------------------------------
@@ -511,8 +543,8 @@ async def upload_grunnlagsdata(file: UploadFile = File(...)):
             "Sjekk at filen er en grunnlagsdata-CSV.",
         )
 
-    _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(_UPLOADED_GRUNN, index=False, encoding="utf-8")
+    _uploaded_grunn().parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(_uploaded_grunn(), index=False, encoding="utf-8")
 
     # Sanity-check the file rather than letting an impossible value run
     # silently. A hand-merged file typically carries summed områdepriser or
@@ -520,7 +552,7 @@ async def upload_grunnlagsdata(file: UploadFile = File(...)):
     # its own — nettapskostnaden just comes out billions too high.
     ref = _reference_grunnlagsdata()
     funn = fusjon_grunnlagsdata.validate_grunnlagsdata(
-        df, ref=ref, config_path=str(ROOT / "config.yaml")
+        df, ref=ref, config_path=str(aarsvalg.config_path())
     )
     delvis = [d for d in fusjon_grunnlagsdata.diff_summary(ref, df) if d["delvis"]] if ref is not None else []
 
@@ -535,15 +567,15 @@ async def upload_grunnlagsdata(file: UploadFile = File(...)):
 
 @app.delete("/api/upload-grunnlagsdata")
 def delete_grunnlagsdata():
-    if _UPLOADED_GRUNN.exists():
-        _UPLOADED_GRUNN.unlink()
+    if _uploaded_grunn().exists():
+        _uploaded_grunn().unlink()
     return {"ok": True}
 
 
 @app.get("/api/upload-grunnlagsdata/status")
 def grunnlagsdata_status():
-    if _UPLOADED_GRUNN.exists():
-        return {"active": True, "filename": _UPLOADED_GRUNN.name, "size": _UPLOADED_GRUNN.stat().st_size}
+    if _uploaded_grunn().exists():
+        return {"active": True, "filename": _uploaded_grunn().name, "size": _uploaded_grunn().stat().st_size}
     return {"active": False}
 
 
@@ -567,11 +599,11 @@ def _reference_grunnlagsdata() -> pd.DataFrame | None:
     override step, so if that run merged companies it is no longer a clean
     baseline — good enough for a range check, not authoritative.
     """
-    if _GENERATED_GRUNN.exists():
+    if _generated_grunn().exists():
         try:
-            return _read_grunn_csv(_GENERATED_GRUNN)
+            return _read_grunn_csv(_generated_grunn())
         except Exception as exc:
-            logger.warning("Kunne ikke lese %s: %s", _GENERATED_GRUNN, exc)
+            logger.warning("Kunne ikke lese %s: %s", _generated_grunn(), exc)
     paths = _latest_run_paths()
     if paths and paths[0] and str(paths[0]).lower().endswith(".csv"):
         try:
@@ -587,10 +619,10 @@ def _fusjon_source() -> tuple[pd.DataFrame, str]:
     The active upload comes first so a merge can be layered on top of hand
     edits (and so two mergers can be applied one after the other).
     """
-    if _UPLOADED_GRUNN.exists():
-        return _read_grunn_csv(_UPLOADED_GRUNN), "aktiv grunnlagsdata"
-    if _GENERATED_GRUNN.exists():
-        return _read_grunn_csv(_GENERATED_GRUNN), "generert grunnlagsdata"
+    if _uploaded_grunn().exists():
+        return _read_grunn_csv(_uploaded_grunn()), "aktiv grunnlagsdata"
+    if _generated_grunn().exists():
+        return _read_grunn_csv(_generated_grunn()), "generert grunnlagsdata"
     paths = _latest_run_paths()
     if paths and paths[0] and str(paths[0]).lower().endswith(".csv"):
         return _read_grunn_csv(paths[0]), f"siste kjøring ({Path(paths[0]).name})"
@@ -649,11 +681,11 @@ def fusjon_grunnlagsdata_apply(body: FusjonGrunnlagsdataRequest):
         raise HTTPException(400, str(exc))
 
     funn = fusjon_grunnlagsdata.validate_grunnlagsdata(
-        merged, ref=_reference_grunnlagsdata(), config_path=str(ROOT / "config.yaml")
+        merged, ref=_reference_grunnlagsdata(), config_path=str(aarsvalg.config_path())
     )
 
-    _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_csv(_UPLOADED_GRUNN, index=False, encoding="utf-8")
+    _uploaded_grunn().parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(_uploaded_grunn(), index=False, encoding="utf-8")
 
     return _clean({
         "ok": True,
@@ -677,7 +709,7 @@ def fusjon_grunnlagsdata_apply(body: FusjonGrunnlagsdataRequest):
 
 @app.get("/api/runs")
 def get_runs():
-    results_dir = ROOT / "Results"
+    results_dir = aarsvalg.results_dir()
     if not results_dir.is_dir():
         return {"runs": []}
     runs = []
@@ -707,7 +739,7 @@ class CsvSaveRequest(BaseModel):
 
 
 def _run_dir_from_name(run_name: str | None) -> Path | None:
-    results_dir = ROOT / "Results"
+    results_dir = aarsvalg.results_dir()
     if run_name:
         # Validate name (same rules as _latest_run_paths)
         if re.search(r'[\\/]|\.\.', run_name) or not run_name.strip():
@@ -735,8 +767,8 @@ def list_run_csv_files(run_name: str | None = Query(None)):
     """Return all .csv files present in the run folder."""
     # Special sentinel: expose the uploaded/generated grunnlagsdata
     if run_name == "__uploaded__":
-        if _UPLOADED_GRUNN.exists():
-            return {"files": [{"filename": _UPLOADED_GRUNN.name, "size": _UPLOADED_GRUNN.stat().st_size}], "run_dir": "__uploaded__"}
+        if _uploaded_grunn().exists():
+            return {"files": [{"filename": _uploaded_grunn().name, "size": _uploaded_grunn().stat().st_size}], "run_dir": "__uploaded__"}
         return {"files": [], "run_dir": "__uploaded__"}
     run_dir = _run_dir_from_name(run_name)
     if run_dir is None:
@@ -753,7 +785,7 @@ def get_run_csv(filename: str = Query(...), run_name: str | None = Query(None)):
     if not _safe_csv_filename(filename):
         raise HTTPException(400, "Invalid filename")
     if run_name == "__uploaded__":
-        csv_path = _UPLOADED_GRUNN
+        csv_path = _uploaded_grunn()
         if not csv_path.exists():
             raise HTTPException(404, "Ingen generert grunnlagsdata funnet")
         df = pd.read_csv(csv_path)
@@ -783,8 +815,8 @@ def put_run_csv(filename: str = Query(...), run_name: str = Query(...), body: Cs
         # another one ("Unnamed: 0.1", "Unnamed: 0.2", …) until the file is
         # full of them.
         df = df.loc[:, [c for c in df.columns if not str(c).startswith("Unnamed:")]]
-        df.to_csv(_UPLOADED_GRUNN, index=False)
-        return {"ok": True, "rows": len(df), "path": str(_UPLOADED_GRUNN)}
+        df.to_csv(_uploaded_grunn(), index=False)
+        return {"ok": True, "rows": len(df), "path": str(_uploaded_grunn())}
     run_dir = _run_dir_from_name(run_name)
     if run_dir is None:
         raise HTTPException(404, "Run not found")
@@ -802,7 +834,7 @@ def put_run_csv(filename: str = Query(...), run_name: str = Query(...), body: Cs
 
 @app.get("/api/config")
 def get_config():
-    cfg_path = ROOT / "config.yaml"
+    cfg_path = aarsvalg.config_path()
     if not cfg_path.exists():
         raise HTTPException(404, "config.yaml not found")
     return {"content": cfg_path.read_text(encoding="utf-8")}
@@ -814,7 +846,14 @@ def update_config(body: ConfigUpdate):
         yaml.safe_load(body.content)  # validate YAML
     except yaml.YAMLError as e:
         raise HTTPException(400, f"Ugyldig YAML: {e}")
-    cfg_path = ROOT / "config.yaml"
+    try:
+        aar_i_filen = int((yaml.safe_load(body.content) or {}).get("aar"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "config.yaml må ha «aar:» øverst (inntektsrammeåret).")
+    if aar_i_filen != aarsvalg.aktivt_aar():
+        raise HTTPException(
+            400, f"Filen sier aar: {aar_i_filen}, men appen står på {aarsvalg.aktivt_aar()}.")
+    cfg_path = aarsvalg.config_path()
     cfg_path.write_text(body.content, encoding="utf-8")
     return {"ok": True}
 
@@ -834,12 +873,13 @@ def update_config(body: ConfigUpdate):
 # rebuilt only when the default file is replaced (a new year).
 
 _SONE_TOLERANSE_KWH = 0.0005   # 0.5 NOK/MWh — enough to absorb rounding in the file
-_SONEKART_CSV = ROOT / "Data" / "BaseData" / "kraftpris_soner_map.csv"
+def _sonekart_csv() -> Path:
+    return aarsvalg.basedata_dir() / "kraftpris_soner_map.csv"
 
 
 def _omradepriser_fra_config() -> dict[str, float]:
     """``forutsetninger.omradepriser`` from config.yaml, in NOK/MWh."""
-    cfg_path = ROOT / "config.yaml"
+    cfg_path = aarsvalg.config_path()
     if not cfg_path.exists():
         raise HTTPException(404, "config.yaml ble ikke funnet.")
     raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
@@ -870,15 +910,13 @@ def _sonekart() -> tuple[pd.DataFrame, dict[str, float]]:
     ``basispris`` is the price the zone had when the map was built, and is what
     still identifies the zone after the user has changed the price.
     """
-    d = _INPUT_FILE_DEFS["kraftpris"]
-    standard = ROOT / d["folder"] / d["default"]
-    if not standard.exists():
-        raise HTTPException(404, f"Finner ikke standardfilen «{d['default']}».")
+    standard = _standardfil("kraftpris")
+    sonekart_csv = _sonekart_csv()
 
-    if _SONEKART_CSV.exists():
-        kart = pd.read_csv(_SONEKART_CSV)
+    if sonekart_csv.exists():
+        kart = pd.read_csv(sonekart_csv)
         if set(kart.columns) >= {"orgn", "pnl.rc", "sone", "basispris", "kilde"} \
-                and (kart["kilde"] == d["default"]).all():
+                and (kart["kilde"] == standard.name).all():
             basis = (kart.dropna(subset=["sone"])
                          .groupby("sone")["basispris"].first().to_dict())
             return kart, {str(k): float(v) for k, v in basis.items()}
@@ -898,12 +936,12 @@ def _sonekart() -> tuple[pd.DataFrame, dict[str, float]]:
 
     df["sone"] = [_sone(v) for v in df["pnl.rc"]]
     df["basispris"] = [priser.get(s) if isinstance(s, str) else None for s in df["sone"]]
-    df["kilde"] = d["default"]
+    df["kilde"] = standard.name
     try:
-        _SONEKART_CSV.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(_SONEKART_CSV, index=False)
+        sonekart_csv.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(sonekart_csv, index=False)
     except OSError as exc:  # read-only mount — the map is then derived each time
-        logger.warning("Kunne ikke lagre sonekartet %s: %s", _SONEKART_CSV, exc)
+        logger.warning("Kunne ikke lagre sonekartet %s: %s", sonekart_csv, exc)
     return df, priser
 
 
@@ -979,8 +1017,7 @@ def put_kraftpris_soner(body: SonepriserRequest):
     ]
     ut = ut.drop(columns=["sone"])
 
-    d = _INPUT_FILE_DEFS["kraftpris"]
-    dest = ROOT / d["folder"] / d["override"]
+    dest = aarsvalg.overstyringsfil("kraftpris")
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.stem + ".tmp.xlsx")
     try:
@@ -989,7 +1026,7 @@ def put_kraftpris_soner(body: SonepriserRequest):
         tmp.replace(dest)
     except Exception as e:
         tmp.unlink(missing_ok=True)
-        raise HTTPException(500, f"Kunne ikke skrive «{d['override']}»: {e}")
+        raise HTTPException(500, f"Kunne ikke skrive «{dest.name}»: {e}")
 
     # Only the zones the user actually changed are written to config.yaml.
     # Writing all of them would replace the rounded values there with the
@@ -997,7 +1034,7 @@ def put_kraftpris_soner(body: SonepriserRequest):
     _skriv_omradepriser({s: float(p) for s, p in body.priser.items()})
 
     endret = int(kart["sone"].isin(body.priser.keys()).sum())
-    return {"ok": True, "filnavn": d["override"], "selskaper_endret": endret, "priser": nye}
+    return {"ok": True, "filnavn": dest.name, "selskaper_endret": endret, "priser": nye}
 
 
 @app.delete("/api/kraftpris-soner")
@@ -1009,8 +1046,7 @@ def delete_kraftpris_soner():
     validation measures against would no longer match the prices the run uses.
     """
     _, basispriser = _sonekart()
-    d = _INPUT_FILE_DEFS["kraftpris"]
-    override = ROOT / d["folder"] / d["override"]
+    override = aarsvalg.overstyringsfil("kraftpris")
     fantes = override.exists()
     if fantes:
         override.unlink()
@@ -1024,7 +1060,7 @@ def _skriv_omradepriser(priser: dict[str, float]) -> None:
     Line editing rather than yaml.safe_dump: a full round-trip would rewrite the
     whole file, including keys this function has no business touching.
     """
-    cfg_path = ROOT / "config.yaml"
+    cfg_path = aarsvalg.config_path()
     linjer = cfg_path.read_text(encoding="utf-8").splitlines(keepends=True)
     start = next((i for i, l in enumerate(linjer) if l.strip() == "omradepriser:"), None)
     if start is None:
@@ -1091,6 +1127,10 @@ _SUPPRESS = (
 )
 
 async def _pipeline_generator() -> AsyncGenerator[str, None]:
+    # The run is locked to the year selected when it starts: R gets it through
+    # IR_AAR, and the upload consumed afterwards is that year's.
+    aar = aarsvalg.aktivt_aar()
+    yield f"data: {json.dumps({'line': f'[STEG] Inntektsrammer {aar}'})}\n\n"
     # Pre-flight: check IRiR.R for conflict markers and report first lines
     irr_path = ROOT / "IRiR.R"
     try:
@@ -1141,6 +1181,7 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=str(ROOT),
+                env={**os.environ, "IR_AAR": str(aar)},
             )
             for raw in proc.stdout:  # type: ignore[union-attr]
                 line = raw.decode("utf-8", errors="replace").rstrip()
@@ -1184,8 +1225,8 @@ async def _pipeline_generator() -> AsyncGenerator[str, None]:
             yield f"data: {json.dumps({'line': buffered})}\n\n"
     # Consume the uploaded grunnlagsdata — it was applied by R (or skipped on failure).
     # Either way, clear it so future runs are not silently affected.
-    if _UPLOADED_GRUNN.exists():
-        _UPLOADED_GRUNN.unlink()
+    if _uploaded_grunn(aar).exists():
+        _uploaded_grunn(aar).unlink()
     yield f"data: {json.dumps({'done': True, 'code': returncode})}\n\n"
 
 
@@ -1222,7 +1263,7 @@ def get_companies(run_name: str | None = Query(default=None)):
         # Fallback: use ld_InputDEA.csv
         try:
             from frontselskap import load_ld_dea_inputs  # noqa: PLC0415
-            dea_df = load_ld_dea_inputs(ROOT / "Results")
+            dea_df = load_ld_dea_inputs(aarsvalg.results_dir())
             return {"companies": [{"id": int(r["id"]), "name": str(r["id"])} for _, r in dea_df.iterrows()]}
         except Exception as e2:
             raise HTTPException(500, str(e2))
@@ -1236,7 +1277,7 @@ def get_companies(run_name: str | None = Query(default=None)):
 def run_prognose(body: PrognoseRequest):
     try:
         from inntektsramme import RevenueCapCalculator  # noqa: PLC0415
-        from prognose import PrognoseCalculator, FORECAST_YEARS  # noqa: PLC0415
+        from prognose import PrognoseCalculator  # noqa: PLC0415
 
         rc = RevenueCapCalculator(run_name=body.run_name)
         etl_df = rc.build_etl_dataframe()
@@ -1289,7 +1330,7 @@ def run_prognose(body: PrognoseRequest):
         return {
             "forecast": _df_to_records(grunn_df),
             "summary":  summary_rows,
-            "years": [str(y) for y in FORECAST_YEARS],
+            "years": [str(y) for y in calc._prognoseaar],
             "all_years": all_year_cols,
             "company_name": str(etl_row.iloc[0].get("Selskap", body.orgn)),
         }
@@ -1357,7 +1398,7 @@ def get_ld_dea(run_name: str | None = Query(default=None)):
     _, ld_path, _ = paths
     try:
         from frontselskap import load_ld_dea_inputs  # noqa: PLC0415
-        dea_df = load_ld_dea_inputs(ROOT / "Results")
+        dea_df = load_ld_dea_inputs(aarsvalg.results_dir())
         res_ld = pd.read_excel(ld_path, sheet_name="Resultater_LD")
         id_to_comp = res_ld.set_index("id")["comp"].to_dict()
         records = _df_to_records(dea_df)
@@ -1382,7 +1423,7 @@ def run_frontier_scenario(body: ScenarioRequest):
         from frontselskap import (  # noqa: PLC0415
             load_ld_dea_inputs, run_ld_scenario, get_frontier_companies, get_peer_shares,
         )
-        dea_df = load_ld_dea_inputs(ROOT / "Results")
+        dea_df = load_ld_dea_inputs(aarsvalg.results_dir())
         res_ld = pd.read_excel(ld_path, sheet_name="Resultater_LD")
         id_to_comp: dict = res_ld.set_index("id")["comp"].to_dict()
 
@@ -1576,6 +1617,7 @@ async def generate_grunnlagsdata():
 
     import platform, tempfile
     script = str(ROOT / "generate_grunnlagsdata.R")
+    aar = aarsvalg.aktivt_aar()
 
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp_path = tmp.name
@@ -1594,6 +1636,7 @@ async def generate_grunnlagsdata():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(ROOT),
+                env={**os.environ, "IR_AAR": str(aar)},
             ),
         )
 
@@ -1603,16 +1646,16 @@ async def generate_grunnlagsdata():
 
         # Place as the active grunnlagsdata override (same slot as a user upload)
         import shutil as _shutil
-        _UPLOADED_GRUNN.parent.mkdir(parents=True, exist_ok=True)
-        _shutil.copy2(tmp_path, str(_UPLOADED_GRUNN))
+        _uploaded_grunn(aar).parent.mkdir(parents=True, exist_ok=True)
+        _shutil.copy2(tmp_path, str(_uploaded_grunn(aar)))
         # Keep a second, pristine copy. A run consumes the slot above, so
         # without this there is no clean baseline left to validate a later
         # hand edit against, or to start a merge from.
-        _shutil.copy2(tmp_path, str(_GENERATED_GRUNN))
+        _shutil.copy2(tmp_path, str(_generated_grunn(aar)))
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
-    size = _UPLOADED_GRUNN.stat().st_size
+    size = _uploaded_grunn(aar).stat().st_size
     today = __import__("datetime").date.today().isoformat()
     return {"ok": True, "filename": f"{today}_grunnlagsdata.csv", "size": size}
 

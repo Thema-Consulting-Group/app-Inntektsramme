@@ -46,11 +46,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import aarsvalg
+
 import numpy as np
 import pandas as pd
 
 from analyse import NIVAA_RAMPER, get_ark, get_rc
-from flerarsark import ARK_BASE_YEAR
+from flerarsark import ark_basisaar
 from frontselskap import _dea_crs_input
 from inntektsramme import DEANorm
 
@@ -183,7 +185,7 @@ def build_fusjon(orgn_a: int, orgn_b: int, fusjonsaar: int,
     rho = float(ark.diagnostics["rho"])
     n93 = rc.cfg.sum_renter_avvik_per_akg
 
-    aar_alle = sorted({int(y) for y in L["aar"] if int(y) >= ARK_BASE_YEAR})
+    aar_alle = sorted({int(y) for y in L["aar"] if int(y) >= ark_basisaar()})
     fusjonsaar = int(fusjonsaar)
     if fusjonsaar not in aar_alle:
         raise ValueError(f"Fusjonsåret må ligge i {aar_alle[0]}–{aar_alle[-1]}.")
@@ -198,7 +200,7 @@ def build_fusjon(orgn_a: int, orgn_b: int, fusjonsaar: int,
     navn_a, navn_b = str(rad_a.iloc[0]["selskap"]), str(rad_b.iloc[0]["selskap"])
 
     # --- DEA-grunnlag og grunnlinje per nettnivå ---------------------------
-    results_dir = Path(rc.cfg.base_dir) / "Results"
+    results_dir = aarsvalg.results_dir(rc.cfg.aar)
     dea: dict[str, dict] = {}
     for nivaa, cfg in DEA_NIVAA.items():
         try:

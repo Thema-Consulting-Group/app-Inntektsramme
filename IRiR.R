@@ -48,14 +48,15 @@
   # For command line execution, use current working directory
   setwd(getwd())
   getwd() # Get current working directory
-  results_dir = file.path(getwd(), "Results") # Define directory where results are written
+  source("./R-script/aarsvalg.R")  # Inntektsrammeaar -> data_dir, aar_results_dir, aarsoppsett
+  results_dir = file.path(getwd(), "Results", ir_aar) # Results/<aar> - where results are written
   timestamp = format(start.time, "%Y-%m-%d_%H-%M-%S") 
   run_dir = file.path(results_dir, paste0("Run_", timestamp)) # Creates directory for given run within results
   dir.create(run_dir, recursive = TRUE) # Actual creation of run_dir
   
 # Bootstrap settings
 # Dummy variable determining whether to calculate new bootstrap estimates (1) or reuse last calculation (0)
-  BS.new = 1
+  BS.new = if (Sys.getenv("IR_BS_NEW") == "0") 0 else 1  # IR_BS_NEW=0 reuses Data/<aar>/Bootstrap/ld_bs.csv
   BS.ite = 10000 # Number of iterations in bootstrap calculation
   Statnett_calc = FALSE #
 
@@ -81,9 +82,9 @@
   source("./R-script/0_2_Merging_Z-variables.R")     # Merging Z-variables
 
   # ── Apply user-uploaded grunnlagsdata overrides (if present) ──────────────
-  # Drop the file at ./Data/grunnlagsdata_uploaded.csv (same format as the
+  # Drop the file at ./Data/<aar>/grunnlagsdata_uploaded.csv (same format as the
   # grunnlagsdata.csv output) to override any values in dat before the model runs.
-  .uploaded_grunn <- "./Data/grunnlagsdata_uploaded.csv"
+  .uploaded_grunn <- file.path(data_dir, "grunnlagsdata_uploaded.csv")
   if (file.exists(.uploaded_grunn)) {
     cat("[override] Loading grunnlagsdata overrides from", .uploaded_grunn, "\n")
     # Sniff the delimiter — a file saved by Excel (Norwegian locale) or the

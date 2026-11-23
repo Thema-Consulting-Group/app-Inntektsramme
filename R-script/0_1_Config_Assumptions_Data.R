@@ -1,12 +1,16 @@
 
 #### 0_1 Configuration, assumptions and data import ####
-forutsetninger = load(file="./Data/forutsetninger.Rdata")
+forutsetninger = load(file=file.path(data_dir, "forutsetninger.Rdata"))
+if (as.integer(y.rc) != ir_aar) {
+  stop("forutsetninger.Rdata i ", data_dir, " gjelder inntektsrammeaar ", y.rc, ", ikke ", ir_aar, ".")
+}
 
 #### Import data ####
-# Each input file checks for an *_override.xlsx first; falls back to the default.
-.irbase_path    <- if (file.exists("./Data/BaseData/irBase_override.xlsx"))    "./Data/BaseData/irBase_override.xlsx"    else "./Data/BaseData/irBase - Stata - 12.11.2025 09_56_56.xlsx"
-.kraftpris_path <- if (file.exists("./Data/BaseData/kraftpris_override.xlsx")) "./Data/BaseData/kraftpris_override.xlsx" else "./Data/BaseData/kraftpris2026.xlsx"
-.id_path        <- if (file.exists("./Data/BaseData/id_override.xlsx"))        "./Data/BaseData/id_override.xlsx"        else "./Data/BaseData/id_ir_26.xlsx"
+# Each input file checks for an *_override.xlsx first; falls back to the year's
+# default in Data/<aar>/BaseData (see finn_inndata in aarsvalg.R).
+.irbase_path    <- finn_inndata("^irBase.*[.]xlsx$",    "irBase_override.xlsx")
+.kraftpris_path <- finn_inndata("^kraftpris.*[.]xlsx$", "kraftpris_override.xlsx")
+.id_path        <- finn_inndata("^id_ir_.*[.]xlsx$",    "id_override.xlsx")
 cat("[input] irBase:    ", basename(.irbase_path),    "\n")
 cat("[input] kraftpris: ", basename(.kraftpris_path), "\n")
 cat("[input] id:        ", basename(.id_path),        "\n")

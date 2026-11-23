@@ -35,8 +35,34 @@ Appen har fire moduler i menyen til venstre: **Dagens RME modell**, **Prognose**
 **Frontselskapsanalyse** og **Oppgaveelastisiteter**. De to første er de som
 brukes til daglig; de to siste er verktøy for enkeltanalyser.
 
+### Inntektsrammeår
+Velgeren **Inntektsrammeår** nederst i menyen bytter mellom årene modellen kan
+regne på (nå 2026 og 2027). Året er inntektsrammeåret; datagrunnlaget er to år
+eldre. Alt i appen følger valgt år – kjøringer, inndatafiler, overstyringer,
+`config.yaml` og prognosen – og siden lastes på nytt ved bytte. Hvert år har sin
+egen mappe:
+
+| Mappe | Innhold |
+|---|---|
+| `Data/<år>/config.yaml` | Forutsetninger (KPI, årslønn, referanserente, områdepriser), kalibrering, DEA-overstyringer |
+| `Data/<år>/aarsoppsett.R` | Fusjoner og selskapslister RME har satt for hånd i 0_2 og 0_4 |
+| `Data/<år>/*.Rdata` | RMEs forutsetninger, geo-variabler og kostnader t-2 |
+| `Data/<år>/kundetillegg.csv` | Tillegg i kostnadsnorm for kundevekst |
+| `Data/<år>/BaseData/` | irBase, kraftpris og id-liste fra RME |
+| `Results/<år>/` | Kjøringene og DEA-referansesettet for året |
+
+R-skriptene i `R-script/` er felles for alle år. En kjøring startet fra appen
+låses til året som var valgt da den startet. `IRiR.R` kan også kjøres for seg;
+den bruker da året i `Data/aktivt_aar.txt`, eller `IR_AAR` hvis den er satt.
+
+**Nytt år:** lag `Data/<år>/` med filene over fra RMEs IRiR-pakke. irBase,
+kraftpris og id-liste finnes på navnemønster (`irBase*.xlsx`, `kraftpris*.xlsx`,
+`id_ir_*.xlsx`), så filnavnene kan stå slik RME leverer dem – men bare én av hver.
+`config.yaml` må ha `aar: <år>` øverst. Se `Data/2027/` for hvor hvert tall er
+hentet fra.
+
 ### Dagens RME modell
-Klikk **Start** for å kjøre modellen. Resultater lagres automatisk i `Results/`.
+Klikk **Start** for å kjøre modellen. Resultater lagres automatisk i `Results/<år>/`.
 Når kjøringen er ferdig kan du laste ned tabellen som CSV.
 
 Resultatsiden viser, i denne rekkefølgen:
@@ -77,8 +103,8 @@ tilbake i grunnlagsdata-feltet.
 #### Kraftpris per prissone
 Panelet **Kraftpris per prissone** setter områdeprisen for NO1–NO5 i NOK/MWh.
 Prisen skrives til `pnl.rc` for alle selskapene i sonen, i
-`Data/BaseData/kraftpris_override.xlsx`, og samtidig til
-`forutsetninger.omradepriser` i `config.yaml` – valideringen av grunnlagsdata
+`Data/<år>/BaseData/kraftpris_override.xlsx`, og samtidig til
+`forutsetninger.omradepriser` i `Data/<år>/config.yaml` – valideringen av grunnlagsdata
 måler mot det båndet, så en ny pris utenfor det gamle ville ellers blitt flagget
 som umulig. **↺** fjerner begge deler igjen.
 
@@ -103,7 +129,7 @@ Panelet **Inndata for neste kjøring** viser de tre Excel-filene modellen leser:
 
 Lasting ned og opp er samme fil: du trenger ikke vite hvordan den ser ut på forhånd,
 last den ned, rediger i Excel og legg den tilbake i samme rad. En opplastet eller
-lagret fil skrives som `*_override.xlsx` i `Data/BaseData/` og leses av
+lagret fil skrives som `*_override.xlsx` i `Data/<år>/BaseData/` og leses av
 `R-script/0_1_Config_Assumptions_Data.R` foran standardfilen. **✕** fjerner
 overstyringen og setter standardfilen tilbake i bruk.
 
